@@ -95,6 +95,11 @@ const USE_CASES = [
 const attackerApp = express();
 const ATTACKER_PORT = 4000;
 
+// Mobile-friendly script viewer route
+attackerApp.get("/script", (_req, res) => {
+  res.sendFile(__dirname + "/video_script.html");
+});
+
 attackerApp.get("/", (_req, res) => {
   const primaryExploit = USE_CASES[0].payload;
   const vulnLink = `http://localhost:3001/transactions?q=${encodeURIComponent(primaryExploit)}`;

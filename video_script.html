@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Video Demo Script - Reflected XSS</title>
+  <style>
+    :root {
+      --primary: #1e40af;
+      --bg: #f8fafc;
+      --card: #ffffff;
+      --text: #0f172a;
+      --action-bg: #fef3c7;
+      --action-text: #92400e;
+      --say-bg: #eff6ff;
+      --say-text: #1e3a8a;
+      --border: #e2e8f0;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    body { background: var(--bg); color: var(--text); padding: 16px; line-height: 1.5; font-size: 16px; }
+    .header { background: #1e293b; color: white; padding: 16px; border-radius: 8px; margin-bottom: 16px; text-align: center; }
+    .header h1 { font-size: 1.25rem; font-weight: 700; }
+    .header p { font-size: 0.85rem; color: #94a3b8; margin-top: 4px; }
+    
+    .step-card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+    .step-title { font-size: 1rem; font-weight: 700; color: var(--primary); margin-bottom: 10px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border); padding-bottom: 6px; }
+    .step-time { font-size: 0.75rem; background: #e2e8f0; color: #475569; padding: 2px 8px; border-radius: 12px; font-weight: 600; }
+    
+    .box { border-radius: 6px; padding: 12px; margin-bottom: 10px; }
+    .action-box { background: var(--action-bg); border-left: 4px solid #f59e0b; color: var(--action-text); }
+    .action-label { font-size: 0.75rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px; }
+    
+    .say-box { background: var(--say-bg); border-left: 4px solid var(--primary); color: var(--say-text); }
+    .say-label { font-size: 0.75rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px; }
+    .say-text { font-size: 1rem; line-height: 1.6; font-weight: 500; }
+    
+    .code-tag { background: #e2e8f0; color: #0f172a; padding: 2px 6px; border-radius: 4px; font-family: monospace; font-size: 0.9em; }
+    
+    @media print {
+      body { background: white; padding: 0; font-size: 13px; }
+      .step-card { page-break-inside: avoid; margin-bottom: 12px; padding: 12px; }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <h1>Web Security Video Script: Reflected XSS</h1>
+    <p>Tushar Saharan | Roll No: IIT2024127 | Dr. Soumyadev Maity</p>
+  </div>
+
+  <!-- STEP 1 -->
+  <div class="step-card">
+    <div class="step-title">
+      <span>1. Introduction & Ownership</span>
+      <span class="step-time">0:00 - 0:25</span>
+    </div>
+    <div class="box action-box">
+      <div class="action-label">👉 Action on Screen:</div>
+      Show <strong>README.md</strong> with your Name (Tushar Saharan) and Roll Number (IIT2024127).
+    </div>
+    <div class="box say-box">
+      <div class="say-label">🗣️ What to Say:</div>
+      <div class="say-text">
+        "Hi, I am Tushar Saharan, roll number IIT2024127. For our web security assignment, I implemented Reflected XSS on an online banking app called Apex Trust. I set up two sides: an attacker site on port 4000, and the bank on ports 3001 and 3002."
+      </div>
+    </div>
+  </div>
+
+  <!-- STEP 2 -->
+  <div class="step-card">
+    <div class="step-title">
+      <span>2. Attacker Side & Use Case 1 (Alert Proof)</span>
+      <span class="step-time">0:25 - 1:10</span>
+    </div>
+    <div class="box action-box">
+      <div class="action-label">👉 Action on Screen:</div>
+      1. Open <span class="code-tag">http://localhost:4000</span>.<br>
+      2. Click the red button: <strong>"🔍 Click Here to Review Disputed Transaction (Vulnerable Server)"</strong>.<br>
+      3. Port 3001 opens and the alert dialog pops up.
+    </div>
+    <div class="box say-box">
+      <div class="say-label">🗣️ What to Say:</div>
+      <div class="say-text">
+        "On port 4000, the attacker crafts a phishing email warning the user of a fake withdrawal. The link contains our XSS script payload inside the search parameter.<br><br>
+        When Alex clicks it, the bank opens on port 3001, and our first use case fires: an alert pops up showing 'Origin: localhost:3001'. This proves arbitrary JavaScript just executed inside the bank's active session."
+      </div>
+    </div>
+  </div>
+
+  <!-- STEP 3 -->
+  <div class="step-card">
+    <div class="step-title">
+      <span>3. Use Cases 2, 3, and 4</span>
+      <span class="step-time">1:10 - 2:00</span>
+    </div>
+    <div class="box action-box">
+      <div class="action-label">👉 Action on Screen:</div>
+      1. Dismiss alert. Switch back to <span class="code-tag">localhost:4000</span>.<br>
+      2. Click red button for <strong>Vector #2 (DOM Defacement)</strong> &rarr; Show balance changed to $0.00 and status turned red.<br>
+      3. Point at <strong>Vector #3</strong> and <strong>Vector #4</strong> cards.
+    </div>
+    <div class="box say-box">
+      <div class="say-label">🗣️ What to Say:</div>
+      <div class="say-text">
+        "In <strong>Use Case 2 (DOM Defacement)</strong>, there is no popup. Instead, the script modifies the page directly: Alex's balance changes to $0.00 and his status changes to 'ACCOUNT FROZEN'. This shows XSS can silently alter what the user sees.<br><br>
+        For <strong>Use Case 3</strong>, an image tag with an onerror event handler triggers without using the word 'script', bypassing basic word filters.<br><br>
+        And in <strong>Use Case 4</strong>, an attribute breakout uses quotes to escape an input value, proving why quotes must also be encoded."
+      </div>
+    </div>
+  </div>
+
+  <!-- STEP 4 -->
+  <div class="step-card">
+    <div class="step-title">
+      <span>4. Vulnerable Code & Root Cause</span>
+      <span class="step-time">2:00 - 2:40</span>
+    </div>
+    <div class="box action-box">
+      <div class="action-label">👉 Action on Screen:</div>
+      Switch to VS Code &rarr; Show <span class="code-tag">app.js</span> at <strong>Line 390</strong>. Highlight <strong>Line 392</strong>.
+    </div>
+    <div class="box say-box">
+      <div class="say-label">🗣️ What to Say:</div>
+      <div class="say-text">
+        "In app.js on line 392, we see how the search banner is built:<br>
+        <code>searchBanner = `... ${query} ...`</code><br><br>
+        <strong>The root cause:</strong> The server directly concatenates unencoded user input into the HTML response. The browser cannot distinguish legitimate HTML from attacker-supplied script tags, so it executes the injected code."
+      </div>
+    </div>
+  </div>
+
+  <!-- STEP 5 -->
+  <div class="step-card">
+    <div class="step-title">
+      <span>5. Implemented Fix & Proof on Port 3002</span>
+      <span class="step-time">2:40 - 3:20</span>
+    </div>
+    <div class="box action-box">
+      <div class="action-label">👉 Action on Screen:</div>
+      1. In VS Code, scroll up to <strong>Line 25</strong> to show <span class="code-tag">escapeHtml()</span>.<br>
+      2. Switch to browser on <span class="code-tag">localhost:4000</span> and click green button: <strong>"🛡️ Click Here to Send Same Payload to Hardened Server (Port 3002)"</strong>.<br>
+      3. Show Port 3002: No alert, balance safe, payload shown as plain text.
+    </div>
+    <div class="box say-box">
+      <div class="say-label">🗣️ What to Say:</div>
+      <div class="say-text">
+        "To fix this, on port 3002, I implemented <strong>HTML Entity Encoding</strong> using escapeHtml() on line 25. It converts the five dangerous characters—ampersand, less-than, greater-than, double quote, and single quote—into safe entities like &amp;lt; and &amp;gt;.<br><br>
+        Now when we send the exact same exploit to the hardened server on port 3002, no alert fires, the balance is untouched, and the payload is rendered as harmless plain text. The attack is completely neutralized."
+      </div>
+    </div>
+  </div>
+
+  <!-- STEP 6 -->
+  <div class="step-card">
+    <div class="step-title">
+      <span>6. Theory Mitigations from Lecture Slides</span>
+      <span class="step-time">3:20 - 3:50</span>
+    </div>
+    <div class="box action-box">
+      <div class="action-label">👉 Action on Screen:</div>
+      Switch to <strong>README.md</strong> section (e) Other Mitigations.
+    </div>
+    <div class="box say-box">
+      <div class="say-label">🗣️ What to Say:</div>
+      <div class="say-text">
+        "Finally, from the lecture slides, the other mitigations for XSS are:<br>
+        1. <strong>Framework Auto-Escaping:</strong> Frameworks like React or Handlebars encode output by default.<br>
+        2. <strong>HTML Sanitizers:</strong> Libraries like DOMPurify strip dangerous tags if rich HTML formatting is needed.<br>
+        3. <strong>Content Security Policy:</strong> Setting a script-src 'self' header tells the browser to block inline scripts.<br>
+        4. <strong>HttpOnly Cookies:</strong> Prevents JavaScript from reading session cookies via document.cookie.<br><br>
+        That completes my demonstration. Thank you!"
+      </div>
+    </div>
+  </div>
+
+</body>
+</html>
