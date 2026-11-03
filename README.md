@@ -13,7 +13,7 @@
 
 | Member Name | Roll Number | Category | Variant Implemented |
 |---|---|---|---|
-| *(Your Full Name)* | *(Your Roll No)* | Cross-Site Scripting (XSS) | Reflected XSS |
+| Tushar Saharan | IIT2024127 | Cross-Site Scripting (XSS) | Reflected XSS |
 
 ---
 
@@ -46,35 +46,32 @@ npm run dev
 
 ---
 
-## 4. End-to-End Execution Flow (What to Show in Video / Viva)
+## 4. The 4 Reflected XSS Use Cases Implemented
 
-```
-+---------------------------------------------------------------------------------------------------------+
-|                                        END-TO-END ATTACK FLOW                                           |
-+---------------------------------------------------------------------------------------------------------+
-|                                                                                                         |
-|  [STEP 1: ATTACKER SIDE - PORT 4000]                                                                    |
-|  • Attacker identifies the transaction search flaw: http://localhost:3001/transactions?q=...            |
-|  • Attacker crafts a phishing email to user Alex Mercer:                                                |
-|    "Urgent: Unrecognized Wire Withdrawal of $1,850.00 detected on your account!"                        |
-|  • Attacker embeds the payload into the action button:                                                  |
-|    href="http://localhost:3001/transactions?q=<script>alert('...')</script>"                           |
-|                                         │                                                               |
-|                                         ▼ (User clicks the button inside their email)                   |
-|                                                                                                         |
-|  [STEP 2: USER SIDE - PORT 3001 (VULNERABLE BANK)]                                                      |
-|  • User's browser navigates to the bank website.                                                        |
-|  • User is logged in (Account Balance: $14,820.50).                                                     |
-|  • Bank server reflects raw query string into HTML without escaping:                                    |
-|    <div>Showing transaction results for: <strong>${query}</strong></div>                               |
-|  • RESULT: User's browser executes the script inside the bank's security origin (alert pops up).       |
-|                                                                                                         |
-|  [STEP 3: USER SIDE - PORT 3002 (SECURE BANK MITIGATION)]                                               |
-|  • User clicks the secure comparison link in the phishing email.                                        |
-|  • Secure server runs escapeHtml(query) converting < and > to &lt; and &gt;.                            |
-|  • RESULT: Script is rendered as inert, harmless text. NO alert fires. Mitigation verified!            |
-+---------------------------------------------------------------------------------------------------------+
-```
+The application demonstrates four distinct manifestations and reflection contexts of Reflected XSS:
+
+### Use Case 1: Standard Script Tag Execution (Brief Baseline)
+- **Vector:** `<script>alert('🚨 XSS EXECUTED! Origin: ' + document.domain)</script>`
+- **Mechanism:** Injected directly into the HTML body text (`<div>${query}</div>`).
+- **Observed Behavior:** An alert dialog pops up immediately displaying the bank's security origin (`localhost:3001`), confirming arbitrary JavaScript execution inside the active session.
+
+### Use Case 2: DOM Defacement & Visual State Tampering (No Alert Dialog)
+- **Vector:** `<script>document.getElementById('display-balance').innerText='$0.00'; document.getElementById('account-status').innerHTML='⚠️ FROZEN';</script>`
+- **Mechanism:** Injected as inline script that programmatically alters Document Object Model (DOM) nodes instead of calling `alert()`.
+- **Observed Behavior:** **No popup appears.** Instead, the victim's displayed account balance is dynamically rewritten from **`$14,820.50` &rarr; `$0.00`** and the session status changes to a red **`⚠️ FROZEN (UNDER INVESTIGATION)`** banner.
+- **Significance:** Proves that XSS can silently manipulate page content to deceive users or induce panic without triggering loud popup alerts.
+
+### Use Case 3: Filter Evasion via Inline Event Handlers
+- **Vector:** `<img src='invalid-image' onerror="alert('Executed via onerror event handler!')">`
+- **Mechanism:** Utilizes HTML5 inline event handlers inside non-script tags.
+- **Observed Behavior:** When the browser fails to load the invalid image resource, the `onerror` event handler fires, executing JavaScript without using the `<script>` keyword.
+- **Significance:** Demonstrates how attackers bypass naive blacklists that merely strip or filter the word `<script>`.
+
+### Use Case 4: Attribute Breakout Injection
+- **Vector:** `" autofocus onfocus="alert('Attribute Breakout!')`
+- **Mechanism:** User input is reflected inside an HTML tag attribute: `<input name="q" value="${query}">`. The leading double quote (`"`) prematurely closes the `value` attribute, allowing the attacker to inject new attributes and event handlers.
+- **Observed Behavior:** The input field automatically gains focus on page load, immediately triggering the injected `onfocus` event handler.
+- **Significance:** Proves why output encoding must handle quotes (`"` and `'`), not just angle brackets (`<` and `>`).
 
 ---
 
@@ -109,11 +106,11 @@ The web server reflects untrusted input directly from `req.query.q` into the HTM
   function escapeHtml(str) {
     if (typeof str !== "string") return "";
     return str
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;")
-      .replace(/'/g, "&#39;");
+      .replace(/&/g, "&amp;")   // 1. Must replace ampersands first to prevent double-encoding
+      .replace(/</g, "&lt;")    // 2. Disarms opening HTML tags (<script>)
+      .replace(/>/g, "&gt;")    // 3. Disarms closing HTML tags
+      .replace(/"/g, "&quot;")  // 4. Disarms attribute breakout (double quotes)
+      .replace(/'/g, "&#39;");  // 5. Disarms attribute breakout (single quotes)
   }
 
   // Applied before interpolation:
