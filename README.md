@@ -1,10 +1,10 @@
-# Online Banking Portal: Reflected XSS Vulnerability & Defense
+# Reflected XSS: Full Two-Sided Attack Simulation & Defense
 
 **Course:** Web Server Vulnerabilities & Defense  
 **Instructor:** Dr. Soumyadev Maity  
 **Category:** Cross-Site Scripting (XSS)  
 **Variant:** Reflected XSS  
-**Application Context:** Apex Trust Internet Banking System  
+**Context:** Apex Trust Internet Banking vs. Attacker Phishing Campaign  
 **Deadline:** 03 November 2026 (Tuesday), 23:59  
 
 ---
@@ -17,136 +17,114 @@
 
 ---
 
-## 2. Quick Start & Execution
+## 2. Architecture: Attacker Side vs. User Side
 
-Ensure Node.js is installed, then launch both servers with a single command:
+This lab implements an end-to-end two-sided architecture:
+
+| Site | Port | Role | Description |
+|---|---|---|---|
+| **Attacker Website** | **4000** | External Attacker / Lure | Simulates the attacker's phishing delivery platform and the victim's email inbox containing the crafted exploit link. |
+| **User Website (Vulnerable)** | **3001** | Apex Trust Online Banking | The real banking application containing the unencoded reflection flaw in the transaction search. |
+| **User Website (Secured)** | **3002** | Apex Trust Online Banking (Hardened) | The exact same banking application, but protected with context-aware HTML entity encoding (`escapeHtml()`). |
+
+---
+
+## 3. How to Run with a Single Command
 
 ```bash
-# Install dependencies (only required once)
+# 1. Install dependencies (if not already installed)
 npm install
 
-# Run both Vulnerable (3001) and Secure (3002) instances simultaneously
+# 2. Run all three servers concurrently
 npm run dev
 ```
 
-### Server Endpoints:
-- **Vulnerable Banking Portal:** [http://localhost:3001](http://localhost:3001)
-- **Hardened Banking Portal:** [http://localhost:3002](http://localhost:3002)
-- **Threat Model & Architecture View:** [http://localhost:3001/scenario](http://localhost:3001/scenario)
+### URLs to Open:
+1. **Attacker Side (Start Here):** [http://localhost:4000](http://localhost:4000)
+2. **User Side - Vulnerable Bank:** [http://localhost:3001](http://localhost:3001)
+3. **User Side - Secured Bank:** [http://localhost:3002](http://localhost:3002)
 
 ---
 
-## 3. Real-World Context: The Two Sides of Reflected XSS
-
-In high-value applications like online banking, Reflected XSS represents a critical vulnerability because malicious JavaScript runs within the user's authenticated origin context.
+## 4. End-to-End Execution Flow (What to Show in Video / Viva)
 
 ```
-+----------------------------------------------------------------------------------------------------+
-|                                    REFLECTED XSS ATTACK LIFECYCLE                                  |
-+----------------------------------------------------------------------------------------------------+
-|                                                                                                    |
-|  [ATTACKER SIDE]                                           [USER / VICTIM SIDE]                    |
-|                                                                                                    |
-|  1. Finds unencoded reflection sink                       2. Authenticated in banking session      |
-|     in transaction search endpoint                           (active balance, session state)       |
-|            |                                                               |                       |
-|  3. Crafts weaponized link with payload:                                  |                       |
-|     http://localhost:3001/transactions?q=<script>...                       |                       |
-|            |                                                               |                       |
-|  4. Social Engineering / Phishing:                                         |                       |
-|     Sends email: "Suspicious charge detected! Click to review" ----------> 5. Victim clicks link    |
-|                                                                                    |               |
-|                                                            [BANKING WEB SERVER]   |               |
-|                                                            6. Server reflects <script> in HTML    |
-|                                                                       |                           |
-|                                                            7. Browser parses script tag and       |
-|                                                               executes in user's trusted session   |
-|                                                                                                    |
-|  [HIGH-RISK EXPLOITATION PATHWAYS IN BANKING]                                                      |
-|  - Fake Credential Prompt: Injects a modal "Session timeout - enter password to verify identity"  |
-|  - Client-Side Transfer: Issues API calls (fetch('/api/transfer')) authenticated as the victim    |
-|  - Session Hijacking: Accesses document.cookie (if HttpOnly is omitted)                           |
-+----------------------------------------------------------------------------------------------------+
++---------------------------------------------------------------------------------------------------------+
+|                                        END-TO-END ATTACK FLOW                                           |
++---------------------------------------------------------------------------------------------------------+
+|                                                                                                         |
+|  [STEP 1: ATTACKER SIDE - PORT 4000]                                                                    |
+|  • Attacker identifies the transaction search flaw: http://localhost:3001/transactions?q=...            |
+|  • Attacker crafts a phishing email to user Alex Mercer:                                                |
+|    "Urgent: Unrecognized Wire Withdrawal of $1,850.00 detected on your account!"                        |
+|  • Attacker embeds the payload into the action button:                                                  |
+|    href="http://localhost:3001/transactions?q=<script>alert('...')</script>"                           |
+|                                         │                                                               |
+|                                         ▼ (User clicks the button inside their email)                   |
+|                                                                                                         |
+|  [STEP 2: USER SIDE - PORT 3001 (VULNERABLE BANK)]                                                      |
+|  • User's browser navigates to the bank website.                                                        |
+|  • User is logged in (Account Balance: $14,820.50).                                                     |
+|  • Bank server reflects raw query string into HTML without escaping:                                    |
+|    <div>Showing transaction results for: <strong>${query}</strong></div>                               |
+|  • RESULT: User's browser executes the script inside the bank's security origin (alert pops up).       |
+|                                                                                                         |
+|  [STEP 3: USER SIDE - PORT 3002 (SECURE BANK MITIGATION)]                                               |
+|  • User clicks the secure comparison link in the phishing email.                                        |
+|  • Secure server runs escapeHtml(query) converting < and > to &lt; and &gt;.                            |
+|  • RESULT: Script is rendered as inert, harmless text. NO alert fires. Mitigation verified!            |
++---------------------------------------------------------------------------------------------------------+
 ```
 
 ---
 
-## 4. Assessment Deliverables (Table 2 Requirements)
+## 5. Assessment Deliverables (Table 2 Requirements)
 
 ### (a) Vulnerable Implementation
-- **File:** `app.js` (Port 3001 instance)
-- **Endpoint:** `GET /transactions`
+- **File:** `app.js` (Route `GET /transactions` on Port 3001)
 - **Flawed Code:**
   ```javascript
   const query = req.query.q || "";
-  // Flaw: Unsanitized user query interpolated directly into response HTML string
-  const queryDisplay = `<div class="alert">Showing query results for: <strong>${query}</strong></div>`;
+  // Unsanitized query string interpolated directly into response HTML string
+  searchBanner = `Showing transaction results for: <strong>${query}</strong>`;
   ```
 
 ### (b) Working Exploit
 - **Exact Payload:**
   ```html
-  <script>alert('XSS: Banking Session Compromised!')</script>
+  <script>alert('🚨 XSS EXECUTED!\n\nOrigin: ' + document.domain + '\nVictim Active Session: Authenticated\nArbitrary JavaScript is running inside the bank!')</script>
   ```
-- **Execution URL:**
+- **Delivered URL (from Port 4000):**
   ```
-  http://localhost:3001/transactions?q=<script>alert('XSS: Banking Session Compromised!')</script>
+  http://localhost:3001/transactions?q=%3Cscript%3Ealert('...')%3C/script%3E
   ```
-- **Behavior:** The browser receives the payload verbatim, parses the `<script>` tag, and executes JavaScript inside the bank's security origin.
 
 ### (c) Root Cause
-The web server extracts untrusted input from the HTTP request query parameter (`req.query.q`) and dynamically concatenates it into the response HTML document without **context-aware output encoding**, **input sanitization**, or **Content Security Policy (CSP)**. Consequently, the browser's HTML parser cannot distinguish legitimate application code from attacker-supplied script elements.
+The web server reflects untrusted input directly from `req.query.q` into the HTML document structure without context-aware output encoding or sanitization. The browser cannot distinguish application markup from attacker input and executes the injected script inside the authenticated banking origin.
 
-### (d) Mitigation Implemented (Port 3002)
-- **Implemented Technique:** Context-Aware HTML-Entity Encoding.
-- **Code Fix:**
+### (d) Implemented Mitigation (Port 3002)
+- **Technique:** Context-Aware HTML Entity Encoding.
+- **Code:**
   ```javascript
   function escapeHtml(str) {
     if (typeof str !== "string") return "";
     return str
-      .replace(/&/g, "&amp;")   // 1. Ampersand must be replaced first
-      .replace(/</g, "&lt;")    // 2. Disarms opening HTML tags (<script>)
-      .replace(/>/g, "&gt;")    // 3. Disarms closing HTML tags
-      .replace(/"/g, "&quot;")  // 4. Disarms attribute breakout (double quotes)
-      .replace(/'/g, "&#39;");  // 5. Disarms attribute breakout (single quotes)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
   }
 
-  // Applied in GET /transactions on Port 3002:
-  const safeQuery = escapeHtml(req.query.q || "");
-  const queryDisplay = `<div>Showing query results for: <strong>${safeQuery}</strong></div>`;
+  // Applied before interpolation:
+  const safeQuery = escapeHtml(query);
+  searchBanner = `Showing transaction results for: <code>${safeQuery}</code>`;
   ```
-- **Verification:** Loading the identical exploit link on the secure server:
-  ```
-  http://localhost:3002/transactions?q=<script>alert('XSS: Banking Session Compromised!')</script>
-  ```
-  The payload renders strictly as benign visible text (`&lt;script&gt;...&lt;/script&gt;`). No script execution occurs.
+- **Verification:** Submitting the identical exploit link to Port 3002 renders the payload as plain text on the page with zero script execution.
 
 ### (e) Other Mitigations (Theory from Lecture Slides)
-Beyond manual entity encoding, lecture slides present the following industry-standard defenses:
-
-1. **Framework Auto-Escaping:**
-   Modern template engines (such as React JSX, Angular templates, Handlebars `{{}}`, or EJS `<%= %>`) treat values as data rather than executable markup by default. Unless explicitly bypassed with dangerous APIs (e.g. `dangerouslySetInnerHTML`), variables are automatically context-encoded.
-
-2. **HTML Sanitization (for Rich Text/HTML inputs):**
-   When an application legitimately needs to allow user-submitted HTML (e.g., banking messaging attachments or formatted support tickets), pure encoding would break formatting. Libraries like **DOMPurify** parse the HTML tree and strip out malicious nodes (`<script>`, `<iframe>`, `onload=`, `javascript:` URIs) while retaining safe markup (`<b>`, `<i>`, `<p>`).
-
-3. **Content Security Policy (CSP):**
-   A defense-in-depth HTTP header (`Content-Security-Policy: default-src 'self'; script-src 'self'`) restricts where scripts can be executed from. A strict CSP disables inline script execution (such as injected `<script>` tags or `onerror=` handlers) even if an injection flaw exists in the HTML.
-
-4. **HttpOnly Cookie Flag:**
-   Configuring session cookies with the `HttpOnly` flag (`Set-Cookie: session=xyz; HttpOnly; Secure; SameSite=Strict`) forbids client-side JavaScript access via `document.cookie`. While this does not prevent XSS execution itself, it neutralizes session hijacking via cookie theft.
-
-5. **Safe DOM Sinks:**
-   On the client side, avoiding dangerous DOM manipulation sinks like `element.innerHTML` or `document.write()` in favor of safe APIs such as `element.textContent` or `element.innerText` ensures that user input cannot be reinterpreted as executable markup by the client runtime.
-
----
-
-## 5. Viva Preparation: Key Questions & Clear Answers
-
-| Question | Answer for Viva |
-|---|---|
-| **Why is this called "Reflected" XSS?** | Because the payload is not persisted on the server (like in Stored XSS). It travels in the request (e.g., query param) and is reflected immediately in the HTTP response. |
-| **Why doesn't anti-CSRF token protect against XSS?** | CSRF tokens protect against cross-site requests, but XSS executes **inside** the origin. Malicious JavaScript running via XSS can read the CSRF token directly from the DOM and perform valid authenticated actions. |
-| **Why must `&` be escaped first in `escapeHtml`?** | If you replace `<` with `&lt;` first and then replace `&` with `&amp;`, the existing `&lt;` will be re-encoded into `&amp;lt;` (double-encoding bug). |
-| **Why doesn't HttpOnly completely solve XSS?** | HttpOnly protects session cookies from `document.cookie`, but an attacker can still perform actions directly via `fetch()` (client-side forgery), log keystrokes, or display fake login modals (DOM phishing). |
-| **What is the difference between sanitization and encoding?** | Encoding turns executable characters into harmless display entities (neutralizing all HTML). Sanitization strips out dangerous elements while preserving safe HTML markup. |
+1. **Framework Auto-Escaping:** Templating engines (React JSX, Handlebars `{{}}`, EJS `<%= %>`) encode variables by default unless explicitly bypassed.
+2. **HTML Sanitizers:** For formatted user inputs, libraries like DOMPurify parse and strip malicious HTML nodes (`<script>`, `<iframe>`, event handlers) while allowing safe formatting (`<b>`, `<i>`).
+3. **Content Security Policy (CSP):** The HTTP header `Content-Security-Policy: default-src 'self'; script-src 'self'` restricts executable script origins and blocks inline scripts.
+4. **HttpOnly Flag on Cookies:** `Set-Cookie: session=xyz; HttpOnly` prevents JavaScript access via `document.cookie`, mitigating credential/session hijacking.
+5. **Safe DOM Sinks:** Using `element.textContent` instead of `element.innerHTML` on the client side ensures dynamic content is never interpreted as executable HTML.

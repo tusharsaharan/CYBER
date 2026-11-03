@@ -1,26 +1,28 @@
 // =============================================================================
-//  CYBERSECURITY LAB: REFLECTED CROSS-SITE SCRIPTING (XSS) IN ONLINE BANKING
+//  CYBERSECURITY LAB: REFLECTED CROSS-SITE SCRIPTING (XSS) DEMONSTRATION
+//  TWO-SIDED ARCHITECTURE: ATTACKER SIDE (PORT 4000) vs USER SIDE (PORT 3001 & 3002)
 // =============================================================================
 //
 //  Course           : Web Server Vulnerabilities & Defense
 //  Category         : Cross-Site Scripting (XSS)
 //  Variant          : Reflected XSS
-//  Target Scenario  : "Apex Trust" Online Banking Application
 //  Instructor       : Dr. Soumyadev Maity
 //  Submission Due   : 03 November 2026, 23:59
 //
 //  How to execute:
 //    npm run dev
 //
-//  Architecture:
-//    • Port 3001 → Vulnerable Online Banking App ("Apex Trust - Vulnerable")
-//    • Port 3002 → Secure Online Banking App ("Apex Trust - Hardened")
+//  Port Architecture:
+//    • Port 4000 → ATTACKER SIDE: Phishing Delivery Server ("EvilCorp Lure Portal")
+//    • Port 3001 → USER SIDE: Apex Trust Online Banking (Vulnerable Instance)
+//    • Port 3002 → USER SIDE: Apex Trust Online Banking (Secured / Hardened Instance)
+//
 // =============================================================================
 
 const express = require("express");
 
 // -----------------------------------------------------------------------------
-// MOCK DATA: SIMULATED BANKING DATABASE
+// SHARED MOCK DATA: SIMULATED BANKING LEDGER
 // -----------------------------------------------------------------------------
 const MOCK_ACCOUNT = {
   holder: "Alex Mercer",
@@ -38,13 +40,259 @@ const MOCK_TRANSACTIONS = [
   { id: "TX-1005", date: "2026-10-22", description: "Cloudflare Subscription", category: "Services", amount: "-$20.00" },
 ];
 
-// -----------------------------------------------------------------------------
-// SHARED STYLING: MODERN BANKING UI TEMPLATE
-// -----------------------------------------------------------------------------
-function renderBankLayout({ title, isSecure, port, activeTab, content }) {
+
+// =============================================================================
+// =============================================================================
+// WEBSITE 1: THE ATTACKER SIDE (PORT 4000)
+// =============================================================================
+// =============================================================================
+//
+// What this website represents:
+//   In a real-world Reflected XSS attack, the malicious link does NOT originate
+//   from the bank itself. The attacker operates an external system (a spoofed
+//   email campaign, an attacker-controlled web forum, a malicious ad, or SMS).
+//
+//   This server simulates the Attacker's Phishing Delivery Infrastructure:
+//   1. The attacker crafts a targeted URL embedding a JavaScript payload into
+//      the bank's vulnerable ?q= transaction search parameter.
+//   2. The attacker drafts a high-urgency lure email: "Suspicious charge detected!"
+//   3. The victim opens their email on this site and clicks the weaponized link.
+// =============================================================================
+
+const attackerApp = express();
+const ATTACKER_PORT = 4000;
+
+// The educational PoC payload
+const EXPLOIT_PAYLOAD = "<script>alert('🚨 XSS EXECUTED!\\n\\nOrigin: ' + document.domain + '\\nVictim Active Session: Authenticated\\nArbitrary JavaScript is running inside the bank!')</script>";
+const ENCODED_PAYLOAD = encodeURIComponent(EXPLOIT_PAYLOAD);
+
+const VULN_ATTACK_URL = `http://localhost:3001/transactions?q=${ENCODED_PAYLOAD}`;
+const SAFE_ATTACK_URL = `http://localhost:3002/transactions?q=${ENCODED_PAYLOAD}`;
+
+attackerApp.get("/", (_req, res) => {
+  res.send(`
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1">
+      <title>Attacker Command Center & Phishing Simulation</title>
+      <style>
+        :root {
+          --dark-bg: #0f172a;
+          --dark-surface: #1e293b;
+          --dark-border: #334155;
+          --red: #ef4444;
+          --red-dark: #dc2626;
+          --green: #22c55e;
+          --text: #f8fafc;
+          --text-muted: #94a3b8;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+        body { background: var(--dark-bg); color: var(--text); padding-bottom: 50px; }
+        header { background: #020617; border-bottom: 1px solid var(--dark-border); padding: 1.25rem 2rem; display: flex; justify-content: space-between; align-items: center; }
+        .badge { background: var(--red); color: white; padding: 0.25rem 0.75rem; border-radius: 9999px; font-size: 0.75rem; font-weight: 700; letter-spacing: 0.05em; }
+        .container { max-width: 1000px; margin: 2rem auto; padding: 0 1rem; }
+        
+        .card { background: var(--dark-surface); border: 1px solid var(--dark-border); border-radius: 10px; padding: 1.5rem; margin-bottom: 1.5rem; }
+        .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; padding-bottom: 0.75rem; border-bottom: 1px solid var(--dark-border); }
+        .card-title { font-size: 1.2rem; font-weight: 700; color: #f1f5f9; display: flex; align-items: center; gap: 0.5rem; }
+
+        /* Mock Webmail UI */
+        .email-client { background: #ffffff; color: #1e293b; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.3); }
+        .email-header { background: #f1f5f9; padding: 1rem 1.5rem; border-bottom: 1px solid #cbd5e1; }
+        .email-field { font-size: 0.85rem; margin-bottom: 0.35rem; }
+        .email-field strong { color: #475569; display: inline-block; width: 70px; }
+        .email-subject { font-size: 1.1rem; font-weight: 700; color: #0f172a; margin-top: 0.5rem; }
+        .email-body { padding: 1.5rem; line-height: 1.6; font-size: 0.95rem; }
+        .email-bank-logo { font-size: 1.1rem; font-weight: 800; color: #1e3a8a; margin-bottom: 1rem; display: flex; align-items: center; gap: 0.5rem; }
+        
+        .cta-btn { display: inline-block; background: #dc2626; color: white !important; font-weight: 700; text-decoration: none; padding: 0.85rem 1.75rem; border-radius: 6px; margin: 1.25rem 0; box-shadow: 0 2px 4px rgba(220, 38, 38, 0.4); }
+        .cta-btn:hover { background: #b91c1c; }
+
+        .cta-btn-safe { display: inline-block; background: #16a34a; color: white !important; font-weight: 700; text-decoration: none; padding: 0.85rem 1.75rem; border-radius: 6px; margin: 1.25rem 0; }
+        .cta-btn-safe:hover { background: #15803d; }
+
+        .code-box { background: #020617; color: #38bdf8; font-family: monospace; font-size: 0.85rem; padding: 1rem; border-radius: 6px; word-break: break-all; margin: 0.75rem 0; border: 1px solid #1e293b; }
+        .flow-step { display: flex; gap: 1rem; margin-bottom: 1rem; align-items: flex-start; }
+        .step-num { background: var(--red); color: white; border-radius: 50%; width: 26px; height: 26px; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.8rem; flex-shrink: 0; }
+        .step-text { font-size: 0.9rem; line-height: 1.5; color: #cbd5e1; }
+      </style>
+    </head>
+    <body>
+      <header>
+        <div style="display: flex; align-items: center; gap: 0.75rem;">
+          <span style="font-size: 1.5rem;">🕵️</span>
+          <div>
+            <div style="font-size: 1.1rem; font-weight: 700;">Attacker Simulation Portal</div>
+            <div style="font-size: 0.75rem; color: var(--text-muted);">External Delivery Infrastructure (Port 4000)</div>
+          </div>
+        </div>
+        <span class="badge">SIDE 1: ATTACKER PERSPECTIVE</span>
+      </header>
+
+      <div class="container">
+        
+        <!-- Explanation Card -->
+        <div class="card" style="border-left: 4px solid var(--red);">
+          <div class="card-header">
+            <h2 class="card-title"><span>🎯</span> Phase 1: Attack Vector Construction</h2>
+          </div>
+          <p style="font-size: 0.9rem; color: #cbd5e1; margin-bottom: 0.75rem;">
+            The attacker has performed reconnaissance and found that Apex Trust Bank's transaction search endpoint reflects user input directly.
+            The attacker crafts a weaponized hyperlink embedding JavaScript into the <span style="color: #38bdf8; font-family: monospace;">?q=</span> parameter:
+          </p>
+          <div class="code-box">${VULN_ATTACK_URL}</div>
+        </div>
+
+        <!-- Simulated Phishing Inbox -->
+        <div class="card">
+          <div class="card-header">
+            <h2 class="card-title"><span>📧</span> Phase 2: Victim's Mailbox (Simulated Social Engineering Delivery)</h2>
+            <span style="font-size: 0.8rem; color: var(--text-muted);">Victim: alex.mercer@company.com</span>
+          </div>
+          <p style="font-size: 0.9rem; color: #cbd5e1; margin-bottom: 1rem;">
+            The victim receives this spoofed banking email. Notice how the email induces urgency to trick the user into clicking:
+          </p>
+
+          <!-- Email Client Container -->
+          <div class="email-client">
+            <div class="email-header">
+              <div class="email-field"><strong>From:</strong> Apex Fraud Prevention &lt;alerts@apex-trust-security.fake&gt;</div>
+              <div class="email-field"><strong>To:</strong> Alex Mercer &lt;alex.mercer@company.com&gt;</div>
+              <div class="email-field"><strong>Date:</strong> 03 November 2026 21:05</div>
+              <div class="email-subject">⚠️ URGENT: Unrecognized Wire Withdrawal of $1,850.00</div>
+            </div>
+
+            <div class="email-body">
+              <div class="email-bank-logo">
+                <span>🏛️</span> Apex Trust Online Banking — Security Center
+              </div>
+              <p>Dear Valued Customer Alex Mercer,</p>
+              <br>
+              <p>Our automated fraud monitoring algorithms detected an unusual outward transfer attempt of <strong>$1,850.00</strong> originating from an unrecognized IP address.</p>
+              <br>
+              <p>If you did not authorize this transaction, please review your active transaction ledger immediately and cancel the pending transfer:</p>
+
+              <!-- THIS IS THE WORKING EXPLOIT LINK SENT BY THE ATTACKER -->
+              <div style="text-align: center; margin: 1.5rem 0;">
+                <a href="${VULN_ATTACK_URL}" target="_blank" class="cta-btn">
+                  🔍 Click Here to Review Disputed Transaction (Vulnerable Server) &rarr;
+                </a>
+                <div style="font-size: 0.8rem; color: #64748b; margin-top: 0.5rem;">
+                  Links directly to: <code>http://localhost:3001/transactions?q=&lt;script&gt;...</code>
+                </div>
+              </div>
+
+              <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 1.5rem 0;">
+
+              <!-- SECURE COMPARISON LINK -->
+              <p style="font-size: 0.9rem; color: #475569;">
+                <strong>Test Defense Mitigation:</strong> Click the button below to send the exact same payload to the <strong>Hardened / Secure</strong> instance (Port 3002):
+              </p>
+              <div style="text-align: center; margin-top: 0.75rem;">
+                <a href="${SAFE_ATTACK_URL}" target="_blank" class="cta-btn-safe">
+                  🛡️ Click Here to Send Same Payload to Hardened Server (Port 3002) &rarr;
+                </a>
+              </div>
+
+              <br>
+              <p style="font-size: 0.8rem; color: #94a3b8;">
+                Apex Trust Security Department | Fraud Prevention Operations | Automated Notification
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Flowchart -->
+        <div class="card">
+          <div class="card-header">
+            <h2 class="card-title"><span>⚡</span> What Happens When the User Clicks?</h2>
+          </div>
+          
+          <div class="flow-step">
+            <div class="step-num">1</div>
+            <div class="step-text">
+              <strong>User Clicks Link:</strong> The user believes this is an authentic security warning from Apex Trust Bank and clicks the button.
+            </div>
+          </div>
+
+          <div class="flow-step">
+            <div class="step-num">2</div>
+            <div class="step-text">
+              <strong>Request Dispatched:</strong> The user's browser opens <span style="font-family: monospace; color: #38bdf8;">http://localhost:3001/transactions?q=&lt;script&gt;...</span> with the user's active session cookies.
+            </div>
+          </div>
+
+          <div class="flow-step">
+            <div class="step-num">3</div>
+            <div class="step-text">
+              <strong>Unencoded Reflection:</strong> The vulnerable bank server inserts the raw <span style="font-family: monospace; color: #ef4444;">&lt;script&gt;</span> tag into the response HTML without entity escaping.
+            </div>
+          </div>
+
+          <div class="flow-step">
+            <div class="step-num">4</div>
+            <div class="step-text">
+              <strong>Execution in Bank Origin:</strong> The user's browser parses the injected script and executes it inside the bank's security boundary.
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </body>
+    </html>
+  `);
+});
+
+
+// =============================================================================
+// =============================================================================
+// WEBSITE 2: THE USER SIDE — APEX TRUST ONLINE BANKING (PORTS 3001 & 3002)
+// =============================================================================
+// =============================================================================
+
+function renderBankPage({ isSecure, query, filteredTransactions }) {
+  const port = isSecure ? 3002 : 3001;
+  const instanceBadge = isSecure ? "SECURE INSTANCE (PORT 3002)" : "VULNERABLE INSTANCE (PORT 3001)";
   const badgeColor = isSecure ? "#16a34a" : "#dc2626";
-  const badgeText = isSecure ? "SECURE INSTANCE (PORT 3002)" : "VULNERABLE INSTANCE (PORT 3001)";
-  const brandName = "Apex Trust Online Banking";
+
+  // Table rows
+  const rows = filteredTransactions.map(t => `
+    <tr>
+      <td style="padding: 0.75rem 1rem; border-bottom: 1px solid #e2e8f0; font-size: 0.9rem;">${t.date}</td>
+      <td style="padding: 0.75rem 1rem; border-bottom: 1px solid #e2e8f0; font-size: 0.9rem;"><strong>${isSecure ? escapeHtml(t.description) : t.description}</strong></td>
+      <td style="padding: 0.75rem 1rem; border-bottom: 1px solid #e2e8f0; font-size: 0.9rem;"><span style="background: #f1f5f9; padding: 0.2rem 0.5rem; border-radius: 4px; font-family: monospace;">${isSecure ? escapeHtml(t.category) : t.category}</span></td>
+      <td style="padding: 0.75rem 1rem; border-bottom: 1px solid #e2e8f0; font-size: 0.9rem; font-weight: 600; color: ${t.amount.startsWith('+') ? '#16a34a' : '#0f172a'};">${t.amount}</td>
+    </tr>
+  `).join("");
+
+  // Search reflection display
+  let searchBanner = "";
+  if (query) {
+    if (isSecure) {
+      // SECURE: entity-escaped
+      const safeQuery = escapeHtml(query);
+      searchBanner = `
+        <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 6px; padding: 1rem; margin-bottom: 1.5rem; color: #166534;">
+          <strong>🔍 Showing transaction results for:</strong> <code>${safeQuery}</code>
+          <div style="font-size: 0.8rem; margin-top: 0.25rem; color: #15803d;">
+            ✅ MITIGATION ACTIVE: Input escaped via escapeHtml(). Rendered as inert text.
+          </div>
+        </div>
+      `;
+    } else {
+      // VULNERABLE: raw interpolation!
+      searchBanner = `
+        <div style="background: #fef2f2; border: 1px solid #fecaca; border-radius: 6px; padding: 1rem; margin-bottom: 1.5rem; color: #991b1b;">
+          <strong>🔍 Showing transaction results for:</strong> <strong>${query}</strong>
+          <div style="font-size: 0.8rem; margin-top: 0.25rem; color: #b91c1c;">
+            ⚠️ FLAW: The server reflected the query string parameter directly into the page without escaping!
+          </div>
+        </div>
+      `;
+    }
+  }
 
   return `
     <!DOCTYPE html>
@@ -52,593 +300,178 @@ function renderBankLayout({ title, isSecure, port, activeTab, content }) {
     <head>
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width, initial-scale=1">
-      <title>${title} | ${brandName}</title>
+      <title>Apex Trust Online Banking | ${isSecure ? 'Secure' : 'Vulnerable'}</title>
       <style>
-        :root {
-          --primary: #1e3a8a;
-          --primary-dark: #172554;
-          --bg: #f8fafc;
-          --surface: #ffffff;
-          --text: #0f172a;
-          --text-muted: #64748b;
-          --border: #e2e8f0;
-          --accent-red: #ef4444;
-          --accent-green: #22c55e;
-          --accent-yellow: #f59e0b;
-        }
-        * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, sans-serif; }
-        body { background: var(--bg); color: var(--text); line-height: 1.5; padding-bottom: 60px; }
-        header { background: var(--primary-dark); color: white; padding: 1rem 2rem; display: flex; justify-content: space-between; align-items: center; }
-        .logo-group { display: flex; align-items: center; gap: 0.75rem; }
-        .logo-icon { font-size: 1.5rem; background: rgba(255,255,255,0.15); padding: 0.35rem 0.6rem; border-radius: 8px; }
-        .brand-title { font-size: 1.25rem; font-weight: 700; letter-spacing: -0.025em; }
-        .instance-pill { font-size: 0.75rem; font-weight: 700; padding: 0.3rem 0.75rem; border-radius: 9999px; background: ${badgeColor}; color: white; letter-spacing: 0.05em; }
-        
-        .nav-bar { background: var(--surface); border-bottom: 1px solid var(--border); padding: 0 2rem; display: flex; gap: 1.5rem; }
-        .nav-link { padding: 1rem 0; text-decoration: none; color: var(--text-muted); font-size: 0.95rem; font-weight: 500; border-bottom: 2px solid transparent; }
-        .nav-link.active { color: var(--primary); border-bottom-color: var(--primary); font-weight: 600; }
-        .nav-link:hover { color: var(--primary); }
-
-        .container { max-width: 1100px; margin: 2rem auto; padding: 0 1rem; }
-        
-        .card { background: var(--surface); border-radius: 10px; border: 1px solid var(--border); padding: 1.5rem; margin-bottom: 1.5rem; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
-        .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem; padding-bottom: 0.75rem; border-bottom: 1px solid var(--border); }
-        .card-title { font-size: 1.15rem; font-weight: 600; color: var(--text); }
-
-        .account-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; margin-bottom: 1rem; }
-        .account-stat { background: #f1f5f9; padding: 1rem; border-radius: 8px; }
-        .account-stat-label { font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
-        .account-stat-val { font-size: 1.35rem; font-weight: 700; color: var(--text); margin-top: 0.25rem; }
-
-        .search-box { display: flex; gap: 0.5rem; margin-bottom: 1.5rem; }
-        .search-input { flex: 1; padding: 0.75rem 1rem; border: 1px solid var(--border); border-radius: 6px; font-size: 0.95rem; }
-        .search-input:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(30, 58, 138, 0.1); }
-        .btn-primary { background: var(--primary); color: white; border: none; padding: 0.75rem 1.5rem; border-radius: 6px; font-weight: 600; cursor: pointer; }
-        .btn-primary:hover { background: var(--primary-dark); }
-
-        table { width: 100%; border-collapse: collapse; text-align: left; }
-        th { background: #f8fafc; padding: 0.75rem 1rem; font-size: 0.8rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; border-bottom: 1px solid var(--border); }
-        td { padding: 0.85rem 1rem; font-size: 0.9rem; border-bottom: 1px solid var(--border); }
-        tr:last-child td { border-bottom: none; }
-        .amount-pos { color: var(--accent-green); font-weight: 600; }
-        .amount-neg { color: var(--text); font-weight: 600; }
-
-        .alert-banner { padding: 1rem; border-radius: 8px; margin-bottom: 1.5rem; display: flex; gap: 0.75rem; align-items: flex-start; }
-        .alert-danger { background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; }
-        .alert-success { background: #f0fdf4; border: 1px solid #bbf7d0; color: #166534; }
-        .alert-info { background: #eff6ff; border: 1px solid #bfdbfe; color: #1e40af; }
-        
-        .code-block { background: #1e293b; color: #f8fafc; padding: 1rem; border-radius: 6px; font-family: "Courier New", Courier, monospace; font-size: 0.85rem; overflow-x: auto; margin: 0.5rem 0; }
-        .code-inline { background: #e2e8f0; color: #334155; padding: 0.2rem 0.4rem; border-radius: 4px; font-family: monospace; font-size: 0.9em; }
-
-        .diagram-step { display: flex; gap: 1rem; margin-bottom: 1rem; align-items: flex-start; }
-        .step-number { background: var(--primary); color: white; border-radius: 50%; width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.85rem; flex-shrink: 0; }
-        .step-content { flex: 1; }
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+        body { background: #f8fafc; color: #0f172a; line-height: 1.5; padding-bottom: 50px; }
+        header { background: #172554; color: white; padding: 1rem 2rem; display: flex; justify-content: space-between; align-items: center; }
+        .badge { background: ${badgeColor}; color: white; padding: 0.3rem 0.75rem; border-radius: 9999px; font-size: 0.75rem; font-weight: 700; }
+        .nav { background: white; border-bottom: 1px solid #e2e8f0; padding: 0 2rem; display: flex; gap: 1.5rem; }
+        .nav a { padding: 0.85rem 0; text-decoration: none; color: #64748b; font-size: 0.9rem; font-weight: 600; border-bottom: 2px solid transparent; }
+        .nav a.active { color: #1e3a8a; border-bottom-color: #1e3a8a; }
+        .container { max-width: 1000px; margin: 2rem auto; padding: 0 1rem; }
+        .card { background: white; border-radius: 8px; border: 1px solid #e2e8f0; padding: 1.5rem; margin-bottom: 1.5rem; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+        .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 1rem; }
+        .stat-box { background: #f8fafc; padding: 1rem; border-radius: 6px; border: 1px solid #e2e8f0; }
+        .stat-label { font-size: 0.75rem; color: #64748b; text-transform: uppercase; font-weight: 700; }
+        .stat-val { font-size: 1.35rem; font-weight: 700; color: #0f172a; margin-top: 0.25rem; }
+        table { width: 100%; border-collapse: collapse; }
+        th { background: #f8fafc; padding: 0.75rem 1rem; font-size: 0.8rem; font-weight: 700; color: #64748b; text-transform: uppercase; border-bottom: 1px solid #e2e8f0; text-align: left; }
       </style>
     </head>
     <body>
       <header>
-        <div class="logo-group">
-          <span class="logo-icon">🏛️</span>
+        <div style="display: flex; align-items: center; gap: 0.75rem;">
+          <span style="font-size: 1.5rem;">🏛️</span>
           <div>
-            <div class="brand-title">${brandName}</div>
-            <div style="font-size: 0.75rem; color: #cbd5e1;">Enterprise Internet Banking Demo</div>
+            <div style="font-size: 1.15rem; font-weight: 700;">Apex Trust Online Banking</div>
+            <div style="font-size: 0.75rem; color: #cbd5e1;">Logged in user: Alex Mercer (Checking Account)</div>
           </div>
         </div>
         <div>
-          <span class="instance-pill">${badgeText}</span>
+          <span class="badge">${instanceBadge}</span>
         </div>
       </header>
 
-      <nav class="nav-bar">
-        <a href="/" class="nav-link ${activeTab === 'dashboard' ? 'active' : ''}">Account Dashboard</a>
-        <a href="/transactions" class="nav-link ${activeTab === 'transactions' ? 'active' : ''}">Transaction Search</a>
-        <a href="/scenario" class="nav-link ${activeTab === 'scenario' ? 'active' : ''}">Attack vs Defense Analysis</a>
+      <nav class="nav">
+        <a href="/" class="active">Account Overview</a>
+        <a href="/transactions">Transaction History</a>
+        <a href="http://localhost:4000" target="_blank" style="color: #dc2626; margin-left: auto;">
+          🕵️ Open Attacker Phishing Simulator (Port 4000) &rarr;
+        </a>
       </nav>
 
-      <main class="container">
-        ${content}
-      </main>
+      <div class="container">
+        <!-- Account Overview Card -->
+        <div class="card">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+            <h2>Account Overview</h2>
+            <span style="font-size: 0.85rem; color: #16a34a; font-weight: 600;">● Session Active</span>
+          </div>
+          <div class="stat-grid">
+            <div class="stat-box">
+              <div class="stat-label">Available Balance</div>
+              <div class="stat-val" style="color: #16a34a;">${MOCK_ACCOUNT.balance}</div>
+            </div>
+            <div class="stat-box">
+              <div class="stat-label">Account Number</div>
+              <div class="stat-val">${MOCK_ACCOUNT.accountNumber}</div>
+            </div>
+            <div class="stat-box">
+              <div class="stat-label">Routing Number</div>
+              <div class="stat-val">${MOCK_ACCOUNT.routingNumber}</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Transaction Ledger & Search Results -->
+        <div class="card">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+            <h3>Transaction Activity</h3>
+            <span style="font-size: 0.85rem; color: #64748b;">${filteredTransactions.length} records</span>
+          </div>
+
+          <form action="/transactions" method="GET" style="display: flex; gap: 0.5rem; margin-bottom: 1.25rem;">
+            <input type="text" name="q" value="${isSecure ? escapeHtml(query) : query}" placeholder="Search merchant or description..." style="flex: 1; padding: 0.65rem 1rem; border: 1px solid #cbd5e1; border-radius: 6px;">
+            <button type="submit" style="background: #1e3a8a; color: white; border: none; padding: 0.65rem 1.25rem; border-radius: 6px; font-weight: 600; cursor: pointer;">Search</button>
+          </form>
+
+          ${searchBanner}
+
+          <table>
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Description / Payee</th>
+                <th>Category</th>
+                <th>Amount</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rows || '<tr><td colspan="4" style="text-align:center; padding: 1.5rem; color: #64748b;">No matching transactions.</td></tr>'}
+            </tbody>
+          </table>
+        </div>
+
+      </div>
     </body>
     </html>
   `;
 }
 
 
-// =============================================================================
-// APP 1: VULNERABLE ONLINE BANKING INSTANCE (PORT 3001)
-// =============================================================================
-//
-// Root Cause Analysis (Item c):
-//   In the transaction search endpoint (GET /transactions?q=...), the user-
-//   supplied query string parameter (req.query.q) is directly interpolated
-//   into the HTML response markup without output encoding or sanitization.
-//
-// Flawed Code Path (Item a):
-//   const query = req.query.q || "";
-//   res.send(`... <div class="results-banner">Showing results for: ${query}</div> ...`);
-//
-// Exploit Vector (Item b):
-//   When a victim clicks a link like:
-//   http://localhost:3001/transactions?q=<script>alert('XSS: Banking Session Compromised!')</script>
-//   The browser interprets the unescaped <script> tag as valid HTML markup,
-//   executing the JavaScript under the trusted origin: http://localhost:3001
-// =============================================================================
-
+// -----------------------------------------------------------------------------
+// VULNERABLE INSTANCE ROUTING (PORT 3001)
+// -----------------------------------------------------------------------------
 const vulnApp = express();
 const VULN_PORT = 3001;
 
-// 1. Dashboard View
 vulnApp.get("/", (_req, res) => {
-  const content = `
-    <div class="alert-banner alert-danger">
-      <div>⚠️</div>
-      <div>
-        <strong>Security Notice:</strong> This instance is intentionally configured with a 
-        <strong>Reflected Cross-Site Scripting (XSS)</strong> vulnerability in the Transaction Search module.
-      </div>
-    </div>
-
-    <div class="card">
-      <div class="card-header">
-        <h2 class="card-title">Welcome, ${MOCK_ACCOUNT.holder}</h2>
-        <span style="font-size: 0.85rem; color: var(--text-muted);">Session Status: Authenticated</span>
-      </div>
-      <div class="account-grid">
-        <div class="account-stat">
-          <div class="account-stat-label">Available Balance</div>
-          <div class="account-stat-val" style="color: var(--accent-green);">${MOCK_ACCOUNT.balance}</div>
-        </div>
-        <div class="account-stat">
-          <div class="account-stat-label">Account Number</div>
-          <div class="account-stat-val">${MOCK_ACCOUNT.accountNumber}</div>
-        </div>
-        <div class="account-stat">
-          <div class="account-stat-label">Account Type</div>
-          <div class="account-stat-val" style="font-size: 1.1rem; padding-top: 0.2rem;">${MOCK_ACCOUNT.accountType}</div>
-        </div>
-        <div class="account-stat">
-          <div class="account-stat-label">Routing Number</div>
-          <div class="account-stat-val">${MOCK_ACCOUNT.routingNumber}</div>
-        </div>
-      </div>
-    </div>
-
-    <div class="card">
-      <div class="card-header">
-        <h3 class="card-title">Quick Action: Search Transaction Ledger</h3>
-        <a href="/transactions" style="color: var(--primary); font-size: 0.9rem; text-decoration: none;">View Full History &rarr;</a>
-      </div>
-      <form action="/transactions" method="GET" class="search-box">
-        <input type="text" name="q" class="search-input" placeholder="Search payee, vendor or keyword (e.g. Payroll, Whole Foods, Mortgage)..." required>
-        <button type="submit" class="btn-primary">Search Records</button>
-      </form>
-      <p style="font-size: 0.85rem; color: var(--text-muted);">
-        Tip: The search parameter is reflected directly onto the page without escaping.
-      </p>
-    </div>
-  `;
-
-  res.send(renderBankLayout({
-    title: "Vulnerable Dashboard",
-    isSecure: false,
-    port: VULN_PORT,
-    activeTab: "dashboard",
-    content
-  }));
+  res.send(renderBankPage({ isSecure: false, query: "", filteredTransactions: MOCK_TRANSACTIONS }));
 });
 
-// 2. Vulnerable Transaction Search (THE VULNERABLE ROUTE)
 vulnApp.get("/transactions", (req, res) => {
   const query = req.query.q || "";
-
-  // Filter transactions matching query
   const filtered = query
-    ? MOCK_TRANSACTIONS.filter(t => 
-        t.description.toLowerCase().includes(query.toLowerCase()) || 
-        t.category.toLowerCase().includes(query.toLowerCase())
-      )
+    ? MOCK_TRANSACTIONS.filter(t => t.description.toLowerCase().includes(query.toLowerCase()) || t.category.toLowerCase().includes(query.toLowerCase()))
     : MOCK_TRANSACTIONS;
 
-  const rows = filtered.map(t => `
-    <tr>
-      <td>${t.date}</td>
-      <td><strong>${t.description}</strong></td>
-      <td><span class="code-inline">${t.category}</span></td>
-      <td class="${t.amount.startsWith('+') ? 'amount-pos' : 'amount-neg'}">${t.amount}</td>
-    </tr>
-  `).join("");
-
-  // VULNERABLE REFLECTION:
-  // `query` is interpolated directly into the HTML response without escapeHtml()!
-  const queryDisplay = query 
-    ? `<div class="alert-banner alert-danger">
-         <div>🔍</div>
-         <div>Showing query results for: <strong>${query}</strong></div>
-       </div>`
-    : "";
-
-  const content = `
-    <div class="card">
-      <div class="card-header">
-        <h2 class="card-title">Account Activity & Transaction Filter</h2>
-        <span style="font-size: 0.85rem; color: var(--text-muted);">${filtered.length} record(s) found</span>
-      </div>
-
-      <form action="/transactions" method="GET" class="search-box">
-        <input type="text" name="q" value="${query}" class="search-input" placeholder="Search by merchant, category, or keyword...">
-        <button type="submit" class="btn-primary">Filter Ledger</button>
-      </form>
-
-      ${queryDisplay}
-
-      <table>
-        <thead>
-          <tr>
-            <th>Date</th>
-            <th>Description / Merchant</th>
-            <th>Category</th>
-            <th>Amount</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${rows || '<tr><td colspan="4" style="text-align:center; color: var(--text-muted);">No records found.</td></tr>'}
-        </tbody>
-      </table>
-    </div>
-
-    <div class="card" style="border-left: 4px solid var(--accent-red);">
-      <h3 style="color: var(--accent-red); margin-bottom: 0.5rem;">🚨 Reflected XSS Exploit Verification</h3>
-      <p style="font-size: 0.9rem; margin-bottom: 0.75rem;">
-        Click or copy the link below to simulate a victim clicking an attacker's phishing link:
-      </p>
-      <div class="code-block">http://localhost:3001/transactions?q=&lt;script&gt;alert('XSS: Banking Session Compromised!')&lt;/script&gt;</div>
-      <p style="margin-top: 0.5rem;">
-        <a href="/transactions?q=<script>alert('XSS: Banking Session Compromised!')</script>" 
-           style="background: #dc2626; color: white; padding: 0.4rem 0.8rem; border-radius: 4px; text-decoration: none; font-size: 0.85rem; font-weight: 600; display: inline-block;">
-          ⚡ Test Working Exploit in Browser
-        </a>
-      </p>
-    </div>
-  `;
-
-  res.send(renderBankLayout({
-    title: "Transactions (Vulnerable)",
-    isSecure: false,
-    port: VULN_PORT,
-    activeTab: "transactions",
-    content
-  }));
-});
-
-// 3. Attack vs Defense Threat Analysis View
-vulnApp.get("/scenario", (_req, res) => {
-  const content = renderScenarioContent(false);
-  res.send(renderBankLayout({
-    title: "Attack Model Analysis",
-    isSecure: false,
-    port: VULN_PORT,
-    activeTab: "scenario",
-    content
-  }));
+  res.send(renderBankPage({ isSecure: false, query, filteredTransactions: filtered }));
 });
 
 
-// =============================================================================
-// APP 2: SECURE / HARDENED ONLINE BANKING INSTANCE (PORT 3002)
-// =============================================================================
-//
-// Implemented Mitigation (Item d):
-//   Context-Aware HTML Entity Encoding.
-//   Every piece of untrusted user input reflected in HTML elements or attributes
-//   is encoded before interpolation.
-//
-// Why this works:
-//   The function replaces special characters (<, >, &, ", ') with their
-//   corresponding HTML character references (&lt;, &gt;, &amp;, &quot;, &#39;).
-//   The browser displays them as literal text instead of parsing them as script.
-// =============================================================================
-
+// -----------------------------------------------------------------------------
+// SECURE INSTANCE ROUTING (PORT 3002) - MITIGATION IMPLEMENTED
+// -----------------------------------------------------------------------------
 const safeApp = express();
 const SAFE_PORT = 3002;
 
-// IMPLEMENTED DEFENSE: HTML-Entity Encoding Function
+// The single implemented mitigation: Context-aware HTML entity encoding
 function escapeHtml(str) {
   if (typeof str !== "string") return "";
   return str
     .replace(/&/g, "&amp;")   // 1. Must replace ampersands first to prevent double-encoding
     .replace(/</g, "&lt;")    // 2. Disarms opening HTML tags (<script>)
     .replace(/>/g, "&gt;")    // 3. Disarms closing HTML tags
-    .replace(/"/g, "&quot;")  // 4. Prevents breakout from double-quoted attributes
-    .replace(/'/g, "&#39;");  // 5. Prevents breakout from single-quoted attributes
+    .replace(/"/g, "&quot;")  // 4. Disarms attribute breakout (double quotes)
+    .replace(/'/g, "&#39;");  // 5. Disarms attribute breakout (single quotes)
 }
 
-// 1. Secure Dashboard View
 safeApp.get("/", (_req, res) => {
-  const content = `
-    <div class="alert-banner alert-success">
-      <div>🛡️</div>
-      <div>
-        <strong>Security Notice:</strong> This instance implements strict 
-        <strong>Context-Aware Output Encoding</strong>. Injected scripts are rendered harmlessly as plain text.
-      </div>
-    </div>
-
-    <div class="card">
-      <div class="card-header">
-        <h2 class="card-title">Welcome, ${MOCK_ACCOUNT.holder}</h2>
-        <span style="font-size: 0.85rem; color: var(--accent-green); font-weight: 600;">Security Controls: Active</span>
-      </div>
-      <div class="account-grid">
-        <div class="account-stat">
-          <div class="account-stat-label">Available Balance</div>
-          <div class="account-stat-val" style="color: var(--accent-green);">${MOCK_ACCOUNT.balance}</div>
-        </div>
-        <div class="account-stat">
-          <div class="account-stat-label">Account Number</div>
-          <div class="account-stat-val">${MOCK_ACCOUNT.accountNumber}</div>
-        </div>
-        <div class="account-stat">
-          <div class="account-stat-label">Account Type</div>
-          <div class="account-stat-val" style="font-size: 1.1rem; padding-top: 0.2rem;">${MOCK_ACCOUNT.accountType}</div>
-        </div>
-        <div class="account-stat">
-          <div class="account-stat-label">Routing Number</div>
-          <div class="account-stat-val">${MOCK_ACCOUNT.routingNumber}</div>
-        </div>
-      </div>
-    </div>
-
-    <div class="card">
-      <div class="card-header">
-        <h3 class="card-title">Search Transaction Ledger (Secured)</h3>
-        <a href="/transactions" style="color: var(--primary); font-size: 0.9rem; text-decoration: none;">View Full History &rarr;</a>
-      </div>
-      <form action="/transactions" method="GET" class="search-box">
-        <input type="text" name="q" class="search-input" placeholder="Search payee, vendor or keyword..." required>
-        <button type="submit" class="btn-primary">Search Records</button>
-      </form>
-    </div>
-  `;
-
-  res.send(renderBankLayout({
-    title: "Secure Dashboard",
-    isSecure: true,
-    port: SAFE_PORT,
-    activeTab: "dashboard",
-    content
-  }));
+  res.send(renderBankPage({ isSecure: true, query: "", filteredTransactions: MOCK_TRANSACTIONS }));
 });
 
-// 2. Secure Transaction Search (THE MITIGATED ROUTE)
 safeApp.get("/transactions", (req, res) => {
-  const rawQuery = req.query.q || "";
-  
-  // MITIGATION APPLIED HERE:
-  const safeQuery = escapeHtml(rawQuery);
-
-  const filtered = rawQuery
-    ? MOCK_TRANSACTIONS.filter(t => 
-        t.description.toLowerCase().includes(rawQuery.toLowerCase()) || 
-        t.category.toLowerCase().includes(rawQuery.toLowerCase())
-      )
+  const query = req.query.q || "";
+  const filtered = query
+    ? MOCK_TRANSACTIONS.filter(t => t.description.toLowerCase().includes(query.toLowerCase()) || t.category.toLowerCase().includes(query.toLowerCase()))
     : MOCK_TRANSACTIONS;
 
-  const rows = filtered.map(t => `
-    <tr>
-      <td>${t.date}</td>
-      <td><strong>${escapeHtml(t.description)}</strong></td>
-      <td><span class="code-inline">${escapeHtml(t.category)}</span></td>
-      <td class="${t.amount.startsWith('+') ? 'amount-pos' : 'amount-neg'}">${t.amount}</td>
-    </tr>
-  `).join("");
-
-  // SECURE REFLECTION:
-  // Notice we render `safeQuery` (HTML-encoded), NOT rawQuery!
-  const queryDisplay = rawQuery 
-    ? `<div class="alert-banner alert-success">
-         <div>🔍</div>
-         <div>Showing query results for: <strong>${safeQuery}</strong></div>
-       </div>`
-    : "";
-
-  const content = `
-    <div class="card">
-      <div class="card-header">
-        <h2 class="card-title">Account Activity & Transaction Filter (Hardened)</h2>
-        <span style="font-size: 0.85rem; color: var(--text-muted);">${filtered.length} record(s) found</span>
-      </div>
-
-      <form action="/transactions" method="GET" class="search-box">
-        <input type="text" name="q" value="${safeQuery}" class="search-input" placeholder="Search by merchant, category, or keyword...">
-        <button type="submit" class="btn-primary">Filter Ledger</button>
-      </form>
-
-      ${queryDisplay}
-
-      <table>
-        <thead>
-          <tr>
-            <th>Date</th>
-            <th>Description / Merchant</th>
-            <th>Category</th>
-            <th>Amount</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${rows || '<tr><td colspan="4" style="text-align:center; color: var(--text-muted);">No records found.</td></tr>'}
-        </tbody>
-      </table>
-    </div>
-
-    <div class="card" style="border-left: 4px solid var(--accent-green);">
-      <h3 style="color: var(--accent-green); margin-bottom: 0.5rem;">🛡️ Blocked Exploit Verification</h3>
-      <p style="font-size: 0.9rem; margin-bottom: 0.75rem;">
-        Testing the exact same attack payload against the secured server:
-      </p>
-      <div class="code-block">http://localhost:3002/transactions?q=&lt;script&gt;alert('XSS: Banking Session Compromised!')&lt;/script&gt;</div>
-      <p style="margin-top: 0.5rem;">
-        <a href="/transactions?q=<script>alert('XSS: Banking Session Compromised!')</script>" 
-           style="background: #16a34a; color: white; padding: 0.4rem 0.8rem; border-radius: 4px; text-decoration: none; font-size: 0.85rem; font-weight: 600; display: inline-block;">
-          🛡️ Verify Payload is Rendered as Plain Text (Fails to Execute)
-        </a>
-      </p>
-    </div>
-  `;
-
-  res.send(renderBankLayout({
-    title: "Transactions (Secure)",
-    isSecure: true,
-    port: SAFE_PORT,
-    activeTab: "transactions",
-    content
-  }));
-});
-
-// 3. Secure Threat Analysis View
-safeApp.get("/scenario", (_req, res) => {
-  const content = renderScenarioContent(true);
-  res.send(renderBankLayout({
-    title: "Attack Model Analysis (Hardened)",
-    isSecure: true,
-    port: SAFE_PORT,
-    activeTab: "scenario",
-    content
-  }));
+  res.send(renderBankPage({ isSecure: true, query, filteredTransactions: filtered }));
 });
 
 
-// -----------------------------------------------------------------------------
-// REUSABLE EDUCATIONAL VIEW: TWO SIDES (ATTACKER VS VICTIM) THREAT MODEL
-// -----------------------------------------------------------------------------
-function renderScenarioContent(isSecure) {
-  return `
-    <div class="card">
-      <div class="card-header">
-        <h2 class="card-title">Reflected XSS: Comprehensive Attack & Defense Model</h2>
-        <span class="code-inline">Vulnerability Variant: Reflected XSS</span>
-      </div>
-      <p style="margin-bottom: 1.5rem; color: var(--text-muted);">
-        Understanding the two sides of a Reflected XSS attack in high-value web applications like online banking.
-      </p>
-
-      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin-bottom: 1.5rem;">
-        <div style="background: #fff1f2; border: 1px solid #fecdd3; border-radius: 8px; padding: 1.25rem;">
-          <h3 style="color: #be123c; margin-bottom: 0.75rem; display: flex; align-items: center; gap: 0.5rem;">
-            <span>🎯</span> Side 1: The Attacker's Workflow
-          </h3>
-          <ul style="padding-left: 1.25rem; font-size: 0.9rem; line-height: 1.7; color: #4c0519;">
-            <li><strong>Reconnaissance:</strong> Attacker discovers the bank's transaction search endpoint reflects query parameters directly into the DOM.</li>
-            <li><strong>Weaponized Link Construction:</strong> Attacker crafts a targeted URL embedding script logic into the <span class="code-inline">?q=</span> parameter.</li>
-            <li><strong>Delivery / Social Engineering:</strong> Attacker emails the victim with a spoofed banking alert: <em>"Suspicious transaction detected on your account! Review details here: [Malicious URL]"</em>.</li>
-            <li><strong>Exploitation Goal:</strong> The script executes inside the victim's authenticated browser session under the bank's legitimate origin (<span class="code-inline">http://localhost:3001</span>).</li>
-          </ul>
-        </div>
-
-        <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 1.25rem;">
-          <h3 style="color: #15803d; margin-bottom: 0.75rem; display: flex; align-items: center; gap: 0.5rem;">
-            <span>👤</span> Side 2: The Victim / User's Context
-          </h3>
-          <ul style="padding-left: 1.25rem; font-size: 0.9rem; line-height: 1.7; color: #14532d;">
-            <li><strong>Active Session:</strong> The victim is already logged in to their online banking portal (holding active session tokens and account state).</li>
-            <li><strong>Implicit Trust:</strong> The victim clicks the link believing it points to their real banking provider (domain name matches legitimate portal).</li>
-            <li><strong>Browser Context:</strong> The browser loads the bank's real page, but because the server reflects unencoded markup, it parses the injected script.</li>
-            <li><strong>Impact:</strong> The script has full access to the Document Object Model (DOM), local storage, and can trigger background requests on the user's behalf.</li>
-          </ul>
-        </div>
-      </div>
-
-      <div class="card" style="background: #f8fafc; border: 1px solid var(--border);">
-        <h3 style="margin-bottom: 1rem;">End-to-End Execution Flowchart</h3>
-        
-        <div class="diagram-step">
-          <div class="step-number">1</div>
-          <div class="step-content">
-            <strong>Attacker identifies unencoded reflection sink</strong>
-            <p style="font-size: 0.85rem; color: var(--text-muted);">The server interpolates <span class="code-inline">req.query.q</span> into <span class="code-inline">&lt;strong&gt;\${query}&lt;/strong&gt;</span>.</p>
-          </div>
-        </div>
-
-        <div class="diagram-step">
-          <div class="step-number">2</div>
-          <div class="step-content">
-            <strong>Social engineering vector delivers the payload</strong>
-            <p style="font-size: 0.85rem; color: var(--text-muted);">Attacker lures logged-in victim via phishing email, chat message, or forum link.</p>
-          </div>
-        </div>
-
-        <div class="diagram-step">
-          <div class="step-number">3</div>
-          <div class="step-content">
-            <strong>Server reflects payload in HTTP response</strong>
-            <p style="font-size: 0.85rem; color: var(--text-muted);">The bank web server mirrors the attacker's script back in the response body.</p>
-          </div>
-        </div>
-
-        <div class="diagram-step">
-          <div class="step-number">4</div>
-          <div class="step-content">
-            <strong>Browser executes script in victim's origin context (Vulnerable) vs Rendered as Text (Secure)</strong>
-            <p style="font-size: 0.85rem; color: var(--text-muted);">
-              ${isSecure 
-                ? '<span style="color: var(--accent-green); font-weight: 600;">[SECURE] escapeHtml() converts characters to entities; browser renders harmless text.</span>' 
-                : '<span style="color: var(--accent-red); font-weight: 600;">[VULNERABLE] Browser parser constructs an executable &lt;script&gt; node and triggers execution.</span>'}
-            </p>
-          </div>
-        </div>
-      </div>
-
-      <div class="card">
-        <h3 style="margin-bottom: 0.75rem;">Theoretical Post-Exploitation Risks in Banking Contexts</h3>
-        <p style="font-size: 0.9rem; margin-bottom: 1rem;">
-          In real-world incidents, adversaries leverage arbitrary JavaScript execution in high-security apps to accomplish:
-        </p>
-        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem;">
-          <div style="background: white; border: 1px solid var(--border); border-radius: 6px; padding: 1rem;">
-            <strong>1. DOM Phishing / Credential Prompts</strong>
-            <p style="font-size: 0.85rem; color: var(--text-muted); margin-top: 0.25rem;">
-              The injected script dynamically inserts a fake modal over the banking UI: <em>"Session expired for security. Please re-enter your password and 2FA token to continue."</em> Because the URL bar shows the legitimate bank domain, victims are easily deceived.
-            </p>
-          </div>
-          <div style="background: white; border: 1px solid var(--border); border-radius: 6px; padding: 1rem;">
-            <strong>2. Client-Side Request Forgery</strong>
-            <p style="font-size: 0.85rem; color: var(--text-muted); margin-top: 0.25rem;">
-              The script executes authenticated API calls (e.g. <span class="code-inline">fetch('/api/transfer')</span>) with the user's active session. Traditional CSRF tokens in the DOM can be read directly by XSS, bypassing anti-CSRF defenses.
-            </p>
-          </div>
-          <div style="background: white; border: 1px solid var(--border); border-radius: 6px; padding: 1rem;">
-            <strong>3. Session Token Exfiltration</strong>
-            <p style="font-size: 0.85rem; color: var(--text-muted); margin-top: 0.25rem;">
-              If session cookies lack the <span class="code-inline">HttpOnly</span> attribute, the script can read <span class="code-inline">document.cookie</span> to hijack the active session.
-            </p>
-          </div>
-        </div>
-      </div>
-    </div>
-  `;
-}
-
-
 // =============================================================================
-// SERVER STARTUP
+// LAUNCH ALL THREE PORTS CONCURRENTLY
 // =============================================================================
+
+attackerApp.listen(ATTACKER_PORT, () => {
+  console.log("\n" + "=".repeat(78));
+  console.log(`  [1] ATTACKER SIDE SERVER RUNNING        ->  http://localhost:${ATTACKER_PORT}`);
+  console.log(`      Phishing Webmail & Attack Lure: http://localhost:${ATTACKER_PORT}`);
+  console.log("=".repeat(78));
+});
 
 vulnApp.listen(VULN_PORT, () => {
-  console.log("\n" + "=".repeat(75));
-  console.log(`  [!] VULNERABLE BANKING APP RUNNING  ->  http://localhost:${VULN_PORT}`);
-  console.log(`      Dashboard : http://localhost:${VULN_PORT}`);
-  console.log(`      Search    : http://localhost:${VULN_PORT}/transactions`);
-  console.log(`      Analysis  : http://localhost:${VULN_PORT}/scenario`);
-  console.log(`      Exploit   : http://localhost:${VULN_PORT}/transactions?q=<script>alert('XSS: Banking Session Compromised!')</script>`);
-  console.log("=".repeat(75));
+  console.log(`  [2] USER SIDE (VULNERABLE BANK) RUNNING ->  http://localhost:${VULN_PORT}`);
+  console.log(`      Account Dashboard             : http://localhost:${VULN_PORT}`);
+  console.log(`      Transaction Search            : http://localhost:${VULN_PORT}/transactions`);
+  console.log("=".repeat(78));
 });
 
 safeApp.listen(SAFE_PORT, () => {
-  console.log("\n" + "=".repeat(75));
-  console.log(`  [+] SECURE / HARDENED APP RUNNING  ->  http://localhost:${SAFE_PORT}`);
-  console.log(`      Dashboard : http://localhost:${SAFE_PORT}`);
-  console.log(`      Search    : http://localhost:${SAFE_PORT}/transactions`);
-  console.log(`      Analysis  : http://localhost:${SAFE_PORT}/scenario`);
-  console.log(`      Test Block: http://localhost:${SAFE_PORT}/transactions?q=<script>alert('XSS: Banking Session Compromised!')</script>`);
-  console.log("=".repeat(75) + "\n");
+  console.log(`  [3] USER SIDE (HARDENED BANK) RUNNING   ->  http://localhost:${SAFE_PORT}`);
+  console.log(`      Hardened Account Dashboard    : http://localhost:${SAFE_PORT}`);
+  console.log(`      Hardened Search (Escaped)     : http://localhost:${SAFE_PORT}/transactions`);
+  console.log("=".repeat(78) + "\n");
 });
