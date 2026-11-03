@@ -1,0 +1,11 @@
+{
+  "name": "reflected-xss-demo",
+  "version": "1.0.0",
+  "description": "Reflected XSS – vulnerable and secure demo (CS Web Security Assignment)",
+  "scripts": {
+    "dev": "node app.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2"
+  }
+}
