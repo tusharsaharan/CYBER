@@ -1,0 +1,22 @@
+{
+  "name": "cs-assignment4-csrf-get",
+  "version": "1.0.0",
+  "description": "Cyber Security (IT-30001) - Web Server Security CSRF (GET-based forged action) Exploitation and Mitigation",
+  "main": "app.js",
+  "scripts": {
+    "dev": "node app.js",
+    "start": "node app.js"
+  },
+  "keywords": [
+    "cybersecurity",
+    "csrf",
+    "get-based-csrf",
+    "iiit-allahabad"
+  ],
+  "author": "IIITA Student",
+  "license": "ISC",
+  "dependencies": {
+    "cookie-parser": "^1.4.7",
+    "express": "^4.22.3"
+  }
+}
