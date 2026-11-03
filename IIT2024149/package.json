@@ -1,0 +1,12 @@
+{
+  "name": "cmdi-assignment",
+  "version": "1.0.0",
+  "description": "Web Security Assignment - OS Command Injection (In-band) - Vulnerable vs Hardened Demo",
+  "main": "app.js",
+  "scripts": {
+    "dev": "node app.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  }
+}
