@@ -1,3 +1,14 @@
+## Ownership Declaration
+
+| Field | Value |
+|---|---|
+| Name | Sahil Gupta |
+| Roll Number | IIT2024123 |
+| Category | Cross Site Scripting (XSS) |
+| Variant | Stored XSS |
+| Instructor | Dr. Soumyadev Maity |
+
+
 # Campus Voice — Stored XSS Variant
 
 This is a small, local-only teaching application for the **Stored XSS** variant in the Web Server Security assignment. It models a public campus feedback wall: a normal visitor submits feedback, the server stores it in SQLite, and later visitors read the saved feedback.
