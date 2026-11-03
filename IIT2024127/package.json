@@ -1,12 +1,11 @@
 {
-  "name": "cmdi-assignment",
+  "name": "reflected-xss-demo",
   "version": "1.0.0",
-  "description": "Web Security Assignment - OS Command Injection (In-band) - Vulnerable vs Hardened Demo",
-  "main": "app.js",
+  "description": "Reflected XSS – vulnerable and secure demo (CS Web Security Assignment)",
   "scripts": {
     "dev": "node app.js"
   },
   "dependencies": {
-    "express": "^4.19.2"
+    "express": "^4.18.2"
   }
 }

