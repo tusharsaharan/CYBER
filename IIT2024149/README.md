@@ -4,8 +4,8 @@
 
 | Field | Value |
 |---|---|
-| Name | *[Rakesh Mali]* |
-| Roll Number | *[IIT2024149]* |
+| Name | Rakesh Mali |
+| Roll Number | IIT2024149 |
 | Category | OS Command Injection |
 | Variant | In-band (output returned) |
 | Instructor | Dr. Soumyadev Maity |
