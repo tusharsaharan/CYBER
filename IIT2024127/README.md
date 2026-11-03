@@ -1,127 +1,149 @@
-# Reflected XSS: Full Two-Sided Attack Simulation & Defense
+# Web Security Assignment — OS Command Injection (In-band)
 
-**Course:** Web Server Vulnerabilities & Defense  
-**Instructor:** Dr. Soumyadev Maity  
-**Category:** Cross-Site Scripting (XSS)  
-**Variant:** Reflected XSS  
-**Context:** Apex Trust Internet Banking vs. Attacker Phishing Campaign  
-**Deadline:** 03 November 2026 (Tuesday), 23:59  
+## Ownership Declaration
 
----
+| Field | Value |
+|---|---|
+| Name | *[Your Name]* |
+| Roll Number | *[Your Roll Number]* |
+| Category | OS Command Injection |
+| Variant | In-band (output returned) |
+| Instructor | Dr. Soumyadev Maity |
 
-## 1. Ownership Declaration (Table 3)
-
-| Member Name | Roll Number | Category | Variant Implemented |
-|---|---|---|---|
-| Tushar Saharan | IIT2024127 | Cross-Site Scripting (XSS) | Reflected XSS |
+> Fill in your name and roll number above before submission.
 
 ---
 
-## 2. Architecture: Attacker Side vs. User Side
+## 1. What this project is
 
-This lab implements an end-to-end two-sided architecture:
+**NetDiag Pro** is a mock internal network-operations dashboard that lets a logged-in admin "ping" a host from the browser. The `host` parameter is the injection point.
 
-| Site | Port | Role | Description |
-|---|---|---|---|
-| **Attacker Website** | **4000** | External Attacker / Lure | Simulates the attacker's phishing delivery platform and the victim's email inbox containing the crafted exploit link. |
-| **User Website (Vulnerable)** | **3001** | Apex Trust Online Banking | The real banking application containing the unencoded reflection flaw in the transaction search. |
-| **User Website (Secured)** | **3002** | Apex Trust Online Banking (Hardened) | The exact same banking application, but protected with context-aware HTML entity encoding (`escapeHtml()`). |
+Three servers run simultaneously:
 
----
+| Port | Role |
+|---|---|
+| **4000** | Attacker Command Center — recon console + exploit launcher + live telemetry |
+| **3001** | NetDiag Pro — **vulnerable** instance (`exec()` with string concatenation) |
+| **3002** | NetDiag Pro — **hardened** instance (`execFile()` + allow-list validation) |
 
-## 3. How to Run with a Single Command
+## 2. Setup
 
 ```bash
-# 1. Install dependencies (if not already installed)
 npm install
-
-# 2. Run all three servers concurrently
 npm run dev
 ```
 
-### URLs to Open:
-1. **Attacker Side (Start Here):** [http://localhost:4000](http://localhost:4000)
-2. **User Side - Vulnerable Bank:** [http://localhost:3001](http://localhost:3001)
-3. **User Side - Secured Bank:** [http://localhost:3002](http://localhost:3002)
+Then open all three in your browser:
+- http://localhost:4000 — Attacker Command Center
+- http://localhost:3001 — Vulnerable target
+- http://localhost:3002 — Hardened target
+
+**Note:** the diagnostic tool shells out to the system `ping` binary. This ships by default on Windows, macOS, and virtually all Linux distros, so no extra install is normally needed. If your environment lacks it, install `iputils-ping` (Linux) — the injection and mitigation logic do not depend on `ping` itself; they depend on how the `host` string reaches the shell.
+
+## 3. Demo walkthrough
+
+1. Open the **Attacker Command Center** (4000) and read the recon log — it walks through how the vulnerable parameter was discovered.
+2. Leave the target selector on **Port 3001 (Vulnerable)** and click **Launch Attack** with the default payload `10.0.0.1; whoami`. The response panel shows the ping output *followed by the output of `whoami`* — proof of in-band command injection (the injected command's result is returned directly in the HTTP response, no blind inference needed).
+3. Switch the target selector to **Port 3002 (Hardened)** and launch the same payload. The server now responds with a validation rejection instead of executing anything.
+4. Open http://localhost:3001 and http://localhost:3002 directly to see the two "sides" of the same corporate UI — identical look, different safety.
 
 ---
 
-## 4. The 4 Reflected XSS Use Cases Implemented
-
-The application demonstrates four distinct manifestations and reflection contexts of Reflected XSS:
-
-### Use Case 1: Standard Script Tag Execution (Brief Baseline)
-- **Vector:** `<script>alert('🚨 XSS EXECUTED! Origin: ' + document.domain)</script>`
-- **Mechanism:** Injected directly into the HTML body text (`<div>${query}</div>`).
-- **Observed Behavior:** An alert dialog pops up immediately displaying the bank's security origin (`localhost:3001`), confirming arbitrary JavaScript execution inside the active session.
-
-### Use Case 2: DOM Defacement & Visual State Tampering (No Alert Dialog)
-- **Vector:** `<script>document.getElementById('display-balance').innerText='$0.00'; document.getElementById('account-status').innerHTML='⚠️ FROZEN';</script>`
-- **Mechanism:** Injected as inline script that programmatically alters Document Object Model (DOM) nodes instead of calling `alert()`.
-- **Observed Behavior:** **No popup appears.** Instead, the victim's displayed account balance is dynamically rewritten from **`$14,820.50` &rarr; `$0.00`** and the session status changes to a red **`⚠️ FROZEN (UNDER INVESTIGATION)`** banner.
-- **Significance:** Proves that XSS can silently manipulate page content to deceive users or induce panic without triggering loud popup alerts.
-
-### Use Case 3: Filter Evasion via Inline Event Handlers
-- **Vector:** `<img src='invalid-image' onerror="alert('Executed via onerror event handler!')">`
-- **Mechanism:** Utilizes HTML5 inline event handlers inside non-script tags.
-- **Observed Behavior:** When the browser fails to load the invalid image resource, the `onerror` event handler fires, executing JavaScript without using the `<script>` keyword.
-- **Significance:** Demonstrates how attackers bypass naive blacklists that merely strip or filter the word `<script>`.
-
-### Use Case 4: Attribute Breakout Injection
-- **Vector:** `" autofocus onfocus="alert('Attribute Breakout!')`
-- **Mechanism:** User input is reflected inside an HTML tag attribute: `<input name="q" value="${query}">`. The leading double quote (`"`) prematurely closes the `value` attribute, allowing the attacker to inject new attributes and event handlers.
-- **Observed Behavior:** The input field automatically gains focus on page load, immediately triggering the injected `onfocus` event handler.
-- **Significance:** Proves why output encoding must handle quotes (`"` and `'`), not just angle brackets (`<` and `>`).
-
----
-
-## 5. Assessment Deliverables (Table 2 Requirements)
+## 4. Rubric Deliverables
 
 ### (a) Vulnerable Implementation
-- **File:** `app.js` (Route `GET /transactions` on Port 3001)
-- **Flawed Code:**
-  ```javascript
-  const query = req.query.q || "";
-  // Unsanitized query string interpolated directly into response HTML string
-  searchBanner = `Showing transaction results for: <strong>${query}</strong>`;
-  ```
+
+**File:** `app.js` — route `GET /api/ping` on the **port 3001** app (search the file for `<<< VULNERABLE LINE >>>`).
+
+```js
+vulnApp.get('/api/ping', (req, res) => {
+  const host = req.query.host || '';
+  // <<< VULNERABLE LINE >>>
+  const cmd = `ping -c 1 ${host}`;
+  exec(cmd, { timeout: 5000 }, (err, stdout, stderr) => {
+    res.json({ output: stdout || stderr });
+  });
+});
+```
+
+The user-controlled `host` value is concatenated directly into a shell command string, which is then handed to `child_process.exec()`.
 
 ### (b) Working Exploit
-- **Exact Payload:**
-  ```html
-  <script>alert('🚨 XSS EXECUTED!\n\nOrigin: ' + document.domain + '\nVictim Active Session: Authenticated\nArbitrary JavaScript is running inside the bank!')</script>
-  ```
-- **Delivered URL (from Port 4000):**
-  ```
-  http://localhost:3001/transactions?q=%3Cscript%3Ealert('...')%3C/script%3E
-  ```
+
+Delivered via the Attacker Command Center (port 4000 → `/attack?port=3001&payload=...`), or directly:
+
+```
+GET http://localhost:3001/api/ping?host=10.0.0.1;%20whoami
+```
+
+Payload: **`10.0.0.1; whoami`**
+
+Observed in-band response (output returned directly in the JSON body, no need for timing or blind inference):
+
+```json
+{ "output": "PING 10.0.0.1 ...\n...\nroot\n" }
+```
+
+The `whoami` output (`root`, or your actual shell user) is appended after the legitimate ping output — proving arbitrary command execution on the server. Other proven payloads: `10.0.0.1 && id`, `10.0.0.1; cat /etc/hostname`.
 
 ### (c) Root Cause
-The web server reflects untrusted input directly from `req.query.q` into the HTML document structure without context-aware output encoding or sanitization. The browser cannot distinguish application markup from attacker input and executes the injected script inside the authenticated banking origin.
 
-### (d) Implemented Mitigation (Port 3002)
-- **Technique:** Context-Aware HTML Entity Encoding.
-- **Code:**
-  ```javascript
-  function escapeHtml(str) {
-    if (typeof str !== "string") return "";
-    return str
-      .replace(/&/g, "&amp;")   // 1. Must replace ampersands first to prevent double-encoding
-      .replace(/</g, "&lt;")    // 2. Disarms opening HTML tags (<script>)
-      .replace(/>/g, "&gt;")    // 3. Disarms closing HTML tags
-      .replace(/"/g, "&quot;")  // 4. Disarms attribute breakout (double quotes)
-      .replace(/'/g, "&#39;");  // 5. Disarms attribute breakout (single quotes)
+The application builds a shell command by **string-concatenating unvalidated user input** (`host`) and executes it with `child_process.exec()`, which runs the string through `/bin/sh -c`. Because a real shell interprets metacharacters (`;`, `&&`, `|`, `` ` ``, `$(...)`), any attacker-supplied shell syntax is executed as additional commands rather than being treated as a literal hostname.
+
+### (d) Mitigation Implemented (port 3002)
+
+**File:** `app.js` — route `GET /api/ping` on the **port 3002** app (search for `MITIGATION IMPLEMENTED`).
+
+The one mitigation graded here: **replace `exec()` (shell string) with `execFile()` (argument vector, no shell)**, combined with allow-list input validation as a first line of defense:
+
+```js
+const HOSTNAME_ALLOWLIST = /^[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,62})(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,62}))*$/;
+
+hardApp.get('/api/ping', (req, res) => {
+  const host = (req.query.host || '').trim();
+  if (!host || host.length > 253 || !HOSTNAME_ALLOWLIST.test(host)) {
+    return res.status(400).json({ error: 'Rejected: invalid hostname/IP.' });
   }
+  execFile('ping', ['-c', '1', host], { timeout: 5000 }, (err, stdout, stderr) => {
+    res.json({ output: stdout || stderr });
+  });
+});
+```
 
-  // Applied before interpolation:
-  const safeQuery = escapeHtml(query);
-  searchBanner = `Showing transaction results for: <code>${safeQuery}</code>`;
-  ```
-- **Verification:** Submitting the identical exploit link to Port 3002 renders the payload as plain text on the page with zero script execution.
+`execFile()` calls the `ping` binary directly via `execve()` with an explicit **argument array**. Each array element is passed to the program as one literal argument — the string is never handed to `/bin/sh` for interpretation, so shell metacharacters lose their special meaning even if they somehow slipped past validation.
 
-### (e) Other Mitigations (Theory from Lecture Slides)
-1. **Framework Auto-Escaping:** Templating engines (React JSX, Handlebars `{{}}`, EJS `<%= %>`) encode variables by default unless explicitly bypassed.
-2. **HTML Sanitizers:** For formatted user inputs, libraries like DOMPurify parse and strip malicious HTML nodes (`<script>`, `<iframe>`, event handlers) while allowing safe formatting (`<b>`, `<i>`).
-3. **Content Security Policy (CSP):** The HTTP header `Content-Security-Policy: default-src 'self'; script-src 'self'` restricts executable script origins and blocks inline scripts.
-4. **HttpOnly Flag on Cookies:** `Set-Cookie: session=xyz; HttpOnly` prevents JavaScript access via `document.cookie`, mitigating credential/session hijacking.
-5. **Safe DOM Sinks:** Using `element.textContent` instead of `element.innerHTML` on the client side ensures dynamic content is never interpreted as executable HTML.
+**Proof the same payload now fails:** `GET http://localhost:3002/api/ping?host=10.0.0.1;%20whoami` → `400 Bad Request`, `{"error":"Rejected: \"10.0.0.1; whoami\" is not a valid hostname/IP ..."}`. The request never reaches `execFile()`.
+
+### (e) Other Mitigations (Theory, from lecture slides)
+
+Beyond the one mitigation implemented in code, defense-in-depth for OS command injection also includes:
+
+- **Avoid the shell entirely wherever possible.** Any API that spawns a process without invoking `/bin/sh` or `cmd.exe` (e.g. `execve`-family calls, language-specific "spawn without shell" APIs) removes the entire class of shell-metacharacter injection, independent of input validation.
+- **Argument vectors over string commands.** Even when a shell cannot be avoided, passing arguments as a discrete array (as done in part (d)) rather than interpolating them into one command string prevents the OS from re-parsing user data as shell syntax.
+- **Allow-list input validation.** Define the narrowest possible pattern for what a legitimate value can look like (e.g. a strict hostname/IPv4 regex) and reject everything else, rather than trying to deny-list "dangerous" characters, which is easy to bypass (encoding, unusual metacharacters, newlines).
+- **Least privilege.** The OS account/service running the application should have the minimum permissions necessary — no shell access, restricted filesystem permissions, no ability to spawn arbitrary binaries — so that even a successful injection has limited blast radius.
+
+---
+
+## 5. Viva Q&A Cheat Sheet
+
+**Q: What's the difference between in-band and blind command injection?**
+A: In-band means the injected command's output is returned directly in the application's response (as seen here — the `whoami` result appears right in the JSON). Blind injection gives no output back, so the attacker infers success indirectly — e.g. via response timing (`sleep 5`) or out-of-band side channels (DNS/HTTP callbacks).
+
+**Q: Why does `exec()` let shell metacharacters matter but `execFile()` doesn't?**
+A: `exec()` runs the given string through `/bin/sh -c "<string>"` — a real shell that parses `;`, `&&`, `|`, backticks, etc. `execFile()` calls `execve()` directly with the binary path and an argument array; there's no shell in the loop to interpret those characters, so `;` or `&&` in an argument is just a literal character passed to the program, not a command separator.
+
+**Q: Isn't input validation alone (without `execFile`) enough?**
+A: It helps, but validation logic can have bugs or be bypassed (encoding tricks, unexpected locale/unicode behavior, incomplete regexes). Avoiding the shell removes the vulnerability class structurally, which is why it's the stronger, defense-in-depth-preferred fix. The two together (seen in port 3002) are best practice.
+
+**Q: Why not just blacklist characters like `;` and `|`?**
+A: Blacklists are inherently incomplete — attackers find characters/encodings the list didn't anticipate (newlines, `$IFS`, Unicode look-alikes, etc.). Allow-listing the exact shape of valid input (e.g. a hostname regex) is far more robust because it enumerates what's *permitted*, not what's *forbidden*.
+
+**Q: What real-world impact can OS command injection have?**
+A: Full remote code execution as the application's OS user — reading/exfiltrating files, installing malware/backdoors, pivoting further into the internal network, or disrupting services. Severity depends on the privileges of the process (here, whatever user runs the Node server).
+
+**Q: How does the attack demo in this project work end-to-end?**
+A: The Attacker Command Center (port 4000) is a separate server that crafts a payload (`10.0.0.1; whoami`), sends it as an HTTP request to the target's `/api/ping` endpoint, and displays the raw JSON response — exactly what a real attacker's browser or script would do against the vulnerable port 3001 instance. The same payload sent to port 3002 is rejected before it ever reaches a system call.
+
+**Q: Where in the code is the actual fix?**
+A: `app.js`, the port-3002 `/api/ping` handler — allow-list regex check, then `execFile('ping', ['-c','1', host], ...)` instead of `exec(`ping -c 1 ${host}`)`.
