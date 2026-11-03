@@ -113,13 +113,13 @@ attackerApp.get("/", (_req, res) => {
       <div style="background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 1.25rem; margin-bottom: 1.25rem;">
         <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.5rem;">
           <div>
-            <h3 style="color: #38bdf8; font-size: 1.05rem; font-weight: 700;">${uc.name}</h3>
-            <div style="font-size: 0.8rem; color: #94a3b8; font-style: italic;">${uc.subtitle}</div>
+            <h3 style="color: #38bdf8; font-size: 1.05rem; font-weight: 700;">${escapeHtml(uc.name)}</h3>
+            <div style="font-size: 0.8rem; color: #94a3b8; font-style: italic;">${escapeHtml(uc.subtitle)}</div>
           </div>
           <span style="background: #020617; color: #cbd5e1; font-size: 0.75rem; padding: 0.2rem 0.5rem; border-radius: 4px; font-family: monospace;">Vector #${index + 1}</span>
         </div>
         
-        <p style="font-size: 0.85rem; color: #cbd5e1; line-height: 1.5; margin: 0.5rem 0;">${uc.description}</p>
+        <p style="font-size: 0.85rem; color: #cbd5e1; line-height: 1.5; margin: 0.5rem 0;">${escapeHtml(uc.description)}</p>
         
         <div style="background: #020617; color: #e2e8f0; font-family: monospace; font-size: 0.75rem; padding: 0.6rem; border-radius: 4px; overflow-x: auto; margin: 0.5rem 0; border: 1px solid #334155;">
           ${escapeHtml(uc.payload)}
