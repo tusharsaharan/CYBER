@@ -2,8 +2,8 @@
 
 | Field | Value |
 |---|---|
-| Name | *[Sahil Gupta]* |
-| Roll Number | *[IIT2024123]* |
+| Name | Sahil Gupta |
+| Roll Number | IIT2024123 |
 | Category | Cross Site Scripting (XSS) |
 | Variant | Stored XSS |
 | Instructor | Dr. Soumyadev Maity |
