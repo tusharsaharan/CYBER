@@ -1,16 +1,17 @@
 // =============================================================================
 //  CYBERSECURITY LAB: REFLECTED CROSS-SITE SCRIPTING (XSS) DEMONSTRATION
-//  EXPANDED USE CASES & REFLECTION VECTORS
+//  FULL TWO-SIDED ARCHITECTURE WITH LIVE ATTACKER CONSOLE & CAMPAIGN TELEMETRY
 // =============================================================================
 //
 //  Course           : Web Server Vulnerabilities & Defense
 //  Category         : Cross-Site Scripting (XSS)
 //  Variant          : Reflected XSS
+//  Target System    : Apex Trust Online Banking
 //  Instructor       : Dr. Soumyadev Maity
 //  Submission Due   : 03 November 2026, 23:59
 //
 //  Port Architecture:
-//    • Port 4000 → ATTACKER SIDE: Phishing Portal & Exploit Vector Showcase
+//    • Port 4000 → ATTACKER SIDE: Phishing Portal, Live Telemetry & Vector Matrix
 //    • Port 3001 → USER SIDE: Apex Trust Online Banking (Vulnerable Instance)
 //    • Port 3002 → USER SIDE: Apex Trust Online Banking (Secured / Hardened Instance)
 //
@@ -19,7 +20,20 @@
 const express = require("express");
 
 // -----------------------------------------------------------------------------
-// MOCK DATA: SIMULATED BANKING LEDGER
+// HTML ENTITY ENCODER (USED BY SECURE INSTANCE AND PREVIEWS)
+// -----------------------------------------------------------------------------
+function escapeHtml(str) {
+  if (typeof str !== "string") return "";
+  return str
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+// -----------------------------------------------------------------------------
+// SHARED MOCK DATA: SIMULATED BANKING LEDGER
 // -----------------------------------------------------------------------------
 const MOCK_ACCOUNT = {
   holder: "Alex Mercer",
@@ -43,15 +57,15 @@ const MOCK_TRANSACTIONS = [
 const USE_CASES = [
   {
     id: "usecase-1",
-    name: "Use Case 1: Standard Element Body Injection",
-    subtitle: "Classic Script Tag Execution",
+    name: "Use Case 1: Standard Script Tag Execution",
+    subtitle: "Classic Script Tag Injection in Element Body",
     description: "The payload injects a standard <script> tag into the HTML element body (<div>${query}</div>). Demonstrates that the browser executes arbitrary JavaScript in the application's origin context.",
     payload: "<script>alert('🚨 Use Case 1 Executed!\\n\\nOrigin: ' + document.domain + '\\nStandard script tag parsed in HTML body.')</script>",
   },
   {
     id: "usecase-2",
     name: "Use Case 2: DOM Defacement & Visual Tampering",
-    subtitle: "Altering What the User Sees in the UI",
+    subtitle: "Altering What the User Sees in the UI (No Alert Dialog)",
     description: "Instead of a pop-up dialog, the injected script dynamically modifies the bank's DOM elements: it changes the user's balance to $0.00 and alters the account status banner to a fake 'ACCOUNT FROZEN' emergency notice.",
     payload: "<script>document.getElementById('display-balance').innerText='$0.00'; document.getElementById('account-status').innerHTML='<span style=\"color:#ef4444; font-weight:800; background:#fee2e2; padding:2px 8px; border-radius:4px;\">⚠️ FROZEN (UNDER INVESTIGATION)</span>'; document.getElementById('security-banner').innerHTML='<div style=\"background:#dc2626; color:white; padding:12px; border-radius:6px; font-weight:700;\">🚨 NOTICE: Unrecognized activity detected. Account assets restricted!</div>';</script>",
   },
@@ -82,9 +96,13 @@ const attackerApp = express();
 const ATTACKER_PORT = 4000;
 
 attackerApp.get("/", (_req, res) => {
-  const cardsHtml = USE_CASES.map((uc, index) => {
-    const vulnLink = `http://localhost:3001/transactions?q=${encodeURIComponent(uc.payload)}`;
-    const safeLink = `http://localhost:3002/transactions?q=${encodeURIComponent(uc.payload)}`;
+  const primaryExploit = USE_CASES[0].payload;
+  const vulnLink = `http://localhost:3001/transactions?q=${encodeURIComponent(primaryExploit)}`;
+  const safeLink = `http://localhost:3002/transactions?q=${encodeURIComponent(primaryExploit)}`;
+
+  const vectorCards = USE_CASES.map((uc, index) => {
+    const vLink = `http://localhost:3001/transactions?q=${encodeURIComponent(uc.payload)}`;
+    const sLink = `http://localhost:3002/transactions?q=${encodeURIComponent(uc.payload)}`;
 
     return `
       <div style="background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 1.25rem; margin-bottom: 1.25rem;">
@@ -103,11 +121,11 @@ attackerApp.get("/", (_req, res) => {
         </div>
 
         <div style="display: flex; gap: 0.75rem; margin-top: 0.75rem; flex-wrap: wrap;">
-          <a href="${vulnLink}" target="_blank" style="background: #dc2626; color: white; text-decoration: none; padding: 0.45rem 0.9rem; border-radius: 5px; font-size: 0.8rem; font-weight: 700;">
-            ⚡ Test on Vulnerable Bank (Port 3001) &rarr;
+          <a href="${vLink}" target="_blank" onclick="recordClick('Vector #${index + 1} (${uc.name.split(':')[0]})', 'Vulnerable Server (3001)')" style="background: #dc2626; color: white; text-decoration: none; padding: 0.45rem 0.9rem; border-radius: 5px; font-size: 0.8rem; font-weight: 700;">
+            ⚡ Trigger on Vulnerable Bank (Port 3001) &rarr;
           </a>
-          <a href="${safeLink}" target="_blank" style="background: #16a34a; color: white; text-decoration: none; padding: 0.45rem 0.9rem; border-radius: 5px; font-size: 0.8rem; font-weight: 700;">
-            🛡️ Verify Blocked on Secure Bank (Port 3002) &rarr;
+          <a href="${sLink}" target="_blank" onclick="recordClick('Vector #${index + 1} (${uc.name.split(':')[0]})', 'Hardened Server (3002)')" style="background: #16a34a; color: white; text-decoration: none; padding: 0.45rem 0.9rem; border-radius: 5px; font-size: 0.8rem; font-weight: 700;">
+            🛡️ Verify Blocked on Hardened Bank (Port 3002) &rarr;
           </a>
         </div>
       </div>
@@ -120,59 +138,215 @@ attackerApp.get("/", (_req, res) => {
     <head>
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width, initial-scale=1">
-      <title>Attacker Hub: Reflected XSS Use Cases Showcase</title>
+      <title>Attacker Command Center & Campaign Telemetry</title>
       <style>
-        :root { --dark-bg: #0f172a; --dark-surface: #1e293b; --red: #ef4444; --green: #22c55e; }
+        :root {
+          --dark-bg: #0b0f19;
+          --dark-surface: #151d30;
+          --dark-border: #243049;
+          --accent-red: #ef4444;
+          --accent-green: #22c55e;
+          --accent-cyan: #38bdf8;
+          --text: #f8fafc;
+          --text-muted: #94a3b8;
+        }
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
-        body { background: var(--dark-bg); color: #f8fafc; padding-bottom: 60px; }
-        header { background: #020617; border-bottom: 1px solid #334155; padding: 1.25rem 2rem; display: flex; justify-content: space-between; align-items: center; }
-        .badge { background: var(--red); color: white; padding: 0.25rem 0.75rem; border-radius: 9999px; font-size: 0.75rem; font-weight: 700; }
-        .container { max-width: 1050px; margin: 2rem auto; padding: 0 1rem; }
-        .card { background: var(--dark-surface); border: 1px solid #334155; border-radius: 10px; padding: 1.5rem; margin-bottom: 1.5rem; }
+        body { background: var(--dark-bg); color: var(--text); padding-bottom: 60px; line-height: 1.5; }
+        header { background: #020617; border-bottom: 1px solid var(--dark-border); padding: 1.25rem 2rem; display: flex; justify-content: space-between; align-items: center; }
+        .badge { background: var(--accent-red); color: white; padding: 0.25rem 0.75rem; border-radius: 9999px; font-size: 0.75rem; font-weight: 700; letter-spacing: 0.05em; }
+        .container { max-width: 1100px; margin: 2rem auto; padding: 0 1rem; }
+        
+        .grid-dashboard { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
+        .stat-card { background: var(--dark-surface); border: 1px solid var(--dark-border); border-radius: 8px; padding: 1.2rem; }
+        .stat-label { font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; font-weight: 700; letter-spacing: 0.05em; }
+        .stat-value { font-size: 1.25rem; font-weight: 700; color: #f1f5f9; margin-top: 0.35rem; }
+
+        .card { background: var(--dark-surface); border: 1px solid var(--dark-border); border-radius: 10px; padding: 1.5rem; margin-bottom: 1.5rem; }
+        .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; padding-bottom: 0.75rem; border-bottom: 1px solid var(--dark-border); }
+        .card-title { font-size: 1.15rem; font-weight: 700; color: #f1f5f9; display: flex; align-items: center; gap: 0.5rem; }
+
+        /* Terminal Feed */
+        .terminal { background: #020617; border: 1px solid #1e293b; border-radius: 8px; padding: 1rem; font-family: "Courier New", Courier, monospace; font-size: 0.8rem; color: #a7f3d0; max-height: 220px; overflow-y: auto; }
+        .log-entry { margin-bottom: 0.4rem; display: flex; gap: 0.75rem; }
+        .log-time { color: var(--text-muted); }
+        .log-tag-info { color: var(--accent-cyan); font-weight: 700; }
+        .log-tag-click { color: #facc15; font-weight: 700; }
+        .log-tag-vuln { color: var(--accent-red); font-weight: 700; }
+        .log-tag-safe { color: var(--accent-green); font-weight: 700; }
+
+        /* Phishing Email Preview */
+        .email-container { background: #ffffff; color: #0f172a; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.4); }
+        .email-header { background: #f8fafc; padding: 1rem 1.5rem; border-bottom: 1px solid #e2e8f0; }
+        .email-field { font-size: 0.85rem; margin-bottom: 0.25rem; color: #334155; }
+        .email-field strong { color: #64748b; display: inline-block; width: 70px; }
+        .email-subject { font-size: 1.1rem; font-weight: 800; color: #0f172a; margin-top: 0.5rem; }
+        .email-body { padding: 1.5rem; font-size: 0.95rem; line-height: 1.6; }
+        .cta-btn { display: inline-block; background: #dc2626; color: white !important; font-weight: 700; text-decoration: none; padding: 0.85rem 1.75rem; border-radius: 6px; margin: 1.25rem 0; box-shadow: 0 4px 6px -1px rgba(220, 38, 38, 0.4); }
+        .cta-btn:hover { background: #b91c1c; }
+        .cta-btn-safe { display: inline-block; background: #16a34a; color: white !important; font-weight: 700; text-decoration: none; padding: 0.85rem 1.75rem; border-radius: 6px; margin: 1.25rem 0; }
+        .cta-btn-safe:hover { background: #15803d; }
       </style>
+
+      <script>
+        function recordClick(vectorName, destination) {
+          const feed = document.getElementById("terminal-feed");
+          const now = new Date();
+          const timeStr = now.toTimeString().split(' ')[0] + '.' + String(now.getMilliseconds()).padStart(3, '0');
+          
+          const isSafe = destination.includes("3002");
+          const tagClass = isSafe ? "log-tag-safe" : "log-tag-vuln";
+          const tagText = isSafe ? "[DEFENSE-BLOCKED]" : "[VICTIM-CLICKED]";
+          
+          const entry = document.createElement("div");
+          entry.className = "log-entry";
+          entry.innerHTML = 
+            '<span class="log-time">' + timeStr + '</span> ' +
+            '<span class="' + tagClass + '">' + tagText + '</span> ' +
+            '<span>Victim triggered <strong>' + vectorName + '</strong> &rarr; Target: ' + destination + '</span>';
+          
+          feed.appendChild(entry);
+          feed.scrollTop = feed.scrollHeight;
+
+          const counter = document.getElementById("click-counter");
+          if (counter) {
+            counter.innerText = parseInt(counter.innerText || "0") + 1;
+          }
+        }
+      </script>
     </head>
     <body>
       <header>
         <div style="display: flex; align-items: center; gap: 0.75rem;">
-          <span style="font-size: 1.5rem;">🕵️</span>
+          <span style="font-size: 1.6rem;">🕵️</span>
           <div>
-            <div style="font-size: 1.15rem; font-weight: 700;">Attacker Simulation Portal</div>
-            <div style="font-size: 0.75rem; color: #94a3b8;">Reflected XSS Demonstration Suite (Port 4000)</div>
+            <div style="font-size: 1.15rem; font-weight: 700;">Attacker Command Center & Phishing Simulation</div>
+            <div style="font-size: 0.75rem; color: var(--text-muted);">External Adversary Infrastructure (Port 4000)</div>
           </div>
         </div>
-        <span class="badge">ATTACKER CONTROL CONSOLE</span>
+        <span class="badge">SIDE 1: ATTACKER CONSOLE</span>
       </header>
 
       <div class="container">
-        <!-- Overview Banner -->
-        <div class="card" style="border-left: 4px solid var(--red);">
-          <h2 style="font-size: 1.25rem; margin-bottom: 0.5rem; color: #f1f5f9;">
-            🎯 Reflected XSS: Multiple Attack Manifestations
-          </h2>
+        
+        <!-- Live Campaign Metrics -->
+        <div class="grid-dashboard">
+          <div class="stat-card">
+            <div class="stat-label">Target Organization</div>
+            <div class="stat-value" style="color: var(--accent-cyan);">Apex Trust Bank</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Exploited Endpoint</div>
+            <div class="stat-value" style="font-family: monospace; font-size: 1rem;">GET /transactions?q=</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Target Account</div>
+            <div class="stat-value">Alex Mercer</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Live Clicks Tracked</div>
+            <div id="click-counter" class="stat-value" style="color: #facc15;">0</div>
+          </div>
+        </div>
+
+        <!-- Live Campaign Telemetry Terminal -->
+        <div class="card">
+          <div class="card-header">
+            <h2 class="card-title"><span>📡</span> Live Campaign Activity & Telemetry Feed</h2>
+            <span style="font-size: 0.8rem; color: var(--accent-green); font-weight: 600;">● Listener Active</span>
+          </div>
+          <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.75rem;">
+            Watch the console below in real time as the victim interacts with phishing lures or test links:
+          </p>
+          <div id="terminal-feed" class="terminal">
+            <div class="log-entry">
+              <span class="log-time">[SYSTEM-INIT]</span>
+              <span class="log-tag-info">[CAMPAIGN-READY]</span>
+              <span>Reconnaissance complete. Reflection sink confirmed on http://localhost:3001/transactions.</span>
+            </div>
+            <div class="log-entry">
+              <span class="log-time">[SYSTEM-INIT]</span>
+              <span class="log-tag-info">[EMAIL-DISPATCH]</span>
+              <span>High-urgency fraud alert lure drafted and queued for delivery to alex.mercer@company.com.</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Simulated Phishing Mailbox -->
+        <div class="card">
+          <div class="card-header">
+            <h2 class="card-title"><span>📧</span> Social Engineering Lure: Victim's Mailbox Preview</h2>
+            <span style="font-size: 0.8rem; color: var(--text-muted);">Simulated Webmail Client</span>
+          </div>
+          <p style="font-size: 0.9rem; color: #cbd5e1; margin-bottom: 1rem;">
+            This is what appears on the victim's screen. The email uses urgency (unauthorized withdrawal alert) to compel the user to click:
+          </p>
+
+          <div class="email-container">
+            <div class="email-header">
+              <div class="email-field"><strong>From:</strong> Apex Fraud Prevention &lt;alerts@apex-trust-security.fake&gt;</div>
+              <div class="email-field"><strong>To:</strong> Alex Mercer &lt;alex.mercer@company.com&gt;</div>
+              <div class="email-field"><strong>Date:</strong> 03 November 2026 21:30</div>
+              <div class="email-subject">⚠️ URGENT: Unrecognized Wire Withdrawal of $1,850.00</div>
+            </div>
+
+            <div class="email-body">
+              <div style="font-size: 1.1rem; font-weight: 800; color: #1e3a8a; margin-bottom: 1rem; display: flex; align-items: center; gap: 0.5rem;">
+                <span>🏛️</span> Apex Trust Online Banking — Security Operations
+              </div>
+              <p>Dear Customer Alex Mercer,</p>
+              <br>
+              <p>Our automated fraud monitoring algorithms detected an unauthorized wire withdrawal attempt of <strong>$1,850.00</strong> originating from an unrecognized IP address.</p>
+              <br>
+              <p>If you did not authorize this transaction, review your active transaction ledger immediately and file a dispute:</p>
+
+              <!-- Working Exploit Button -->
+              <div style="text-align: center; margin: 1.5rem 0;">
+                <a href="${vulnLink}" target="_blank" onclick="recordClick('Primary Lure (Script Alert)', 'Vulnerable Server (3001)')" class="cta-btn">
+                  🔍 Click Here to Review Disputed Transaction (Vulnerable Server) &rarr;
+                </a>
+                <div style="font-size: 0.8rem; color: #64748b; margin-top: 0.5rem;">
+                  Directs victim to: <code>http://localhost:3001/transactions?q=&lt;script&gt;...</code>
+                </div>
+              </div>
+
+              <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 1.5rem 0;">
+
+              <!-- Hardened Server Test Button -->
+              <p style="font-size: 0.9rem; color: #475569;">
+                <strong>Test Implemented Defense:</strong> Send the exact same payload to the <strong>Hardened / Secure</strong> instance (Port 3002):
+              </p>
+              <div style="text-align: center; margin-top: 0.75rem;">
+                <a href="${safeLink}" target="_blank" onclick="recordClick('Primary Lure (Hardened Test)', 'Hardened Server (3002)')" class="cta-btn-safe">
+                  🛡️ Click Here to Send Same Payload to Hardened Server (Port 3002) &rarr;
+                </a>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 4 Use Cases Showcase Matrix -->
+        <div class="card">
+          <div class="card-header">
+            <h2 class="card-title"><span>⚡</span> Exploit Vector Showcase (4 Distinct Use Cases)</h2>
+            <span style="font-size: 0.8rem; color: var(--text-muted);">Multiple Reflection Sinks & Manifestations</span>
+          </div>
+          <p style="font-size: 0.9rem; color: #cbd5e1; margin-bottom: 1.25rem;">
+            Test each distinct Reflected XSS attack vector below. Notice how clicking any button instantly updates the telemetry feed above:
+          </p>
+          ${vectorCards}
+        </div>
+
+        <!-- Architecture Breakdown -->
+        <div class="card" style="border-left: 4px solid var(--accent-cyan);">
+          <h3 style="color: var(--accent-cyan); margin-bottom: 0.5rem;">🎓 Key Viva Takeaway: The Client-Side Execution Boundary</h3>
           <p style="font-size: 0.9rem; color: #cbd5e1; line-height: 1.6;">
-            Reflected XSS is not limited to simple <span style="font-family: monospace; color: #38bdf8;">alert()</span> dialogs. 
-            Depending on where untrusted input is reflected (inside HTML text vs. HTML tag attributes) and the attacker's objective, 
-            several distinct attack use cases exist. Test each vector below against both the <strong>Vulnerable</strong> and <strong>Secured</strong> banking instances:
+            Notice what happens when the victim clicks the link: The browser opens a direct TCP connection with <strong>Port 3001 (The Bank)</strong>.
+            The payload bounces off the bank's server and executes inside the victim's local browser process.
+            The attacker's server (Port 4000) does <strong>not</strong> automatically receive the user's password or screen—this is why Reflected XSS is classified as a <em>client-side reflection vulnerability</em>.
+            Defense-in-depth controls like <strong>Content Security Policy (connect-src 'self')</strong> exist specifically to ensure that the injected script can never establish an unauthorized outbound network connection.
           </p>
         </div>
 
-        <!-- Four Use Cases Showcase -->
-        <div class="card">
-          <h2 style="font-size: 1.15rem; margin-bottom: 1rem; color: #f8fafc; border-bottom: 1px solid #334155; padding-bottom: 0.5rem;">
-            Interactive Demonstration Matrix (4 Exploitation Use Cases)
-          </h2>
-          ${cardsHtml}
-        </div>
-
-        <!-- Quick Links -->
-        <div style="text-align: center; margin-top: 1.5rem;">
-          <a href="http://localhost:3001" target="_blank" style="color: #94a3b8; text-decoration: none; font-size: 0.85rem; margin: 0 1rem;">
-            &rarr; Open Vulnerable Bank Dashboard (Port 3001)
-          </a>
-          <a href="http://localhost:3002" target="_blank" style="color: #94a3b8; text-decoration: none; font-size: 0.85rem; margin: 0 1rem;">
-            &rarr; Open Secure Bank Dashboard (Port 3002)
-          </a>
-        </div>
       </div>
     </body>
     </html>
@@ -213,7 +387,6 @@ function renderBankPage({ isSecure, query, filteredTransactions }) {
         </div>
       `;
     } else {
-      // VULNERABLE: Direct unescaped reflection in HTML body!
       searchBanner = `
         <div id="security-banner" style="background: #fef2f2; border: 1px solid #fecaca; border-radius: 6px; padding: 1rem; margin-bottom: 1.5rem; color: #991b1b;">
           <strong>🔍 Showing transaction results for:</strong> <strong>${query}</strong>
@@ -225,7 +398,6 @@ function renderBankPage({ isSecure, query, filteredTransactions }) {
     }
   }
 
-  // Quick use-case test buttons
   const vectorButtons = USE_CASES.map(uc => {
     const link = `http://localhost:${port}/transactions?q=${encodeURIComponent(uc.payload)}`;
     return `
@@ -283,7 +455,6 @@ function renderBankPage({ isSecure, query, filteredTransactions }) {
       </nav>
 
       <div class="container">
-        <!-- Account Overview Card -->
         <div class="card">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
             <h2>Account Overview</h2>
@@ -292,7 +463,6 @@ function renderBankPage({ isSecure, query, filteredTransactions }) {
           <div class="stat-grid">
             <div class="stat-box">
               <div class="stat-label">Available Balance</div>
-              <!-- Notice ID display-balance used for DOM Defacement demo (Use Case 2) -->
               <div id="display-balance" class="stat-val" style="color: #16a34a;">${MOCK_ACCOUNT.balance}</div>
             </div>
             <div class="stat-box">
@@ -306,14 +476,12 @@ function renderBankPage({ isSecure, query, filteredTransactions }) {
           </div>
         </div>
 
-        <!-- Transaction Ledger & Search Results -->
         <div class="card">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
             <h3>Transaction Activity</h3>
             <span style="font-size: 0.85rem; color: #64748b;">${filteredTransactions.length} records</span>
           </div>
 
-          <!-- Note: in vulnerable version, query in input value is also unescaped (attribute breakout context) -->
           <form action="/transactions" method="GET" style="display: flex; gap: 0.5rem; margin-bottom: 1.25rem;">
             <input type="text" name="q" value="${isSecure ? escapeHtml(query) : query}" placeholder="Search merchant or description..." style="flex: 1; padding: 0.65rem 1rem; border: 1px solid #cbd5e1; border-radius: 6px;">
             <button type="submit" style="background: #1e3a8a; color: white; border: none; padding: 0.65rem 1.25rem; border-radius: 6px; font-weight: 600; cursor: pointer;">Search</button>
@@ -336,7 +504,6 @@ function renderBankPage({ isSecure, query, filteredTransactions }) {
           </table>
         </div>
 
-        <!-- In-app Use Cases Switcher -->
         <div class="card" style="background: #f8fafc;">
           <h4 style="font-size: 0.9rem; color: #475569; margin-bottom: 0.5rem;">Test Exploit Vectors Directly on This Instance:</h4>
           <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
@@ -377,15 +544,14 @@ vulnApp.get("/transactions", (req, res) => {
 const safeApp = express();
 const SAFE_PORT = 3002;
 
-// The single implemented mitigation: Context-aware HTML entity encoding
 function escapeHtml(str) {
   if (typeof str !== "string") return "";
   return str
-    .replace(/&/g, "&amp;")   // 1. Must replace ampersands first to prevent double-encoding
-    .replace(/</g, "&lt;")    // 2. Disarms opening HTML tags (<script>)
-    .replace(/>/g, "&gt;")    // 3. Disarms closing HTML tags
-    .replace(/"/g, "&quot;")  // 4. Disarms attribute breakout (double quotes)
-    .replace(/'/g, "&#39;");  // 5. Disarms attribute breakout (single quotes)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 safeApp.get("/", (_req, res) => {
@@ -409,7 +575,7 @@ safeApp.get("/transactions", (req, res) => {
 attackerApp.listen(ATTACKER_PORT, () => {
   console.log("\n" + "=".repeat(78));
   console.log(`  [1] ATTACKER SIDE SERVER RUNNING        ->  http://localhost:${ATTACKER_PORT}`);
-  console.log(`      Exploit Vector Matrix (4 Cases) : http://localhost:${ATTACKER_PORT}`);
+  console.log(`      Command Center & Live Telemetry : http://localhost:${ATTACKER_PORT}`);
   console.log("=".repeat(78));
 });
 
